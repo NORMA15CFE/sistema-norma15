@@ -997,7 +997,7 @@ def descargar_excel():
             bottom=Side(style='thin', color='000000')
         )
 
-        # Mes actual en español basado en la fecha de hoy (ej. Octubre)
+        # Mes actual en español basado en la fecha de hoy
         now_dt = datetime.now()
         mes_actual_en = now_dt.strftime('%B')
         mes_actual_es = MESES_ESP.get(mes_actual_en, mes_actual_en).capitalize()
@@ -1072,6 +1072,85 @@ def descargar_excel():
 
     except Exception as e:
         flash(f'Error al generar el reporte con Excel: {str(e)}')
+        return redirect(url_for('dashboard'))
+
+
+# ==========================================
+# DESCARGA DE EXCEL TODOS / HISTORIAL (RESTAURADO)
+# ==========================================
+@app.route('/descargar_excel_todos')
+def descargar_excel_todos():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros ORDER BY co ASC')
+    registros = cursor.fetchall()
+    conn.close()
+
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    plantilla_excel = os.path.join(base_dir, 'plantillareporte_todos.xlsx')
+    output_filename = 'Informe_Historial_Todos_Alumnos.xlsx'
+    output_path = os.path.join(base_dir, output_filename)
+
+    try:
+        if not os.path.exists(plantilla_excel):
+            flash('Error: No se encontró la plantilla "plantillareporte_todos.xlsx".')
+            return redirect(url_for('dashboard'))
+
+        wb = openpyxl.load_workbook(plantilla_excel)
+        ws = wb.active
+
+        start_row = 4
+        row_idx = start_row
+        thin_border = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
+
+        for idx, r in enumerate(registros, start=1):
+            valores_fila = [
+                idx, r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[14]
+            ]
+
+            for c_offset, val in enumerate(valores_fila):
+                col_num = 1 + c_offset
+                cell = ws.cell(row=row_idx, column=col_num)
+                
+                if isinstance(cell, MergedCell):
+                    for range_merged in ws.merged_cells.ranges:
+                        if cell.coordinate in range_merged:
+                            cell = ws.cell(row=range_merged.min_row, column=range_merged.min_col)
+                            break
+
+                cell.value = val
+                cell.font = Font(name='Arial', size=9, color='000000')
+                cell.border = thin_border
+
+                if col_num in [1, 7, 8, 9, 10, 11]:
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                else:
+                    cell.alignment = Alignment(horizontal='left', vertical='center')
+
+            row_idx += 1
+
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+        wb.save(output_path)
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=output_filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+    except Exception as e:
+        flash(f'Error al generar el Excel de Historial: {str(e)}')
         return redirect(url_for('dashboard'))
 
 
