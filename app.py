@@ -108,13 +108,15 @@ def init_db():
             archivo_contrato TEXT,
             motivo_baja TEXT,
             archivo_acta_nacimiento TEXT,
-            archivo_vigencia_imss TEXT
+            archivo_vigencia_imss TEXT,
+            archivo_formato_solicitud TEXT
         )
     ''')
 
     for col_sql in ["ALTER TABLE registros ADD COLUMN motivo_baja TEXT", 
                     "ALTER TABLE registros ADD COLUMN archivo_acta_nacimiento TEXT", 
-                    "ALTER TABLE registros ADD COLUMN archivo_vigencia_imss TEXT"]:
+                    "ALTER TABLE registros ADD COLUMN archivo_vigencia_imss TEXT",
+                    "ALTER TABLE registros ADD COLUMN archivo_formato_solicitud TEXT"]:
         try:
             cursor.execute(col_sql)
         except sqlite3.OperationalError:
@@ -427,6 +429,7 @@ def subir_archivos(co):
         'contrato': 'archivo_contrato',
         'acta_nacimiento': 'archivo_acta_nacimiento',
         'vigencia_imss': 'archivo_vigencia_imss',
+        'formato_solicitud': 'archivo_formato_solicitud',
     }
 
     conn = sqlite3.connect('datos.db')
@@ -467,6 +470,7 @@ def eliminar_archivo(co, campo):
         'contrato': 'archivo_contrato',
         'acta_nacimiento': 'archivo_acta_nacimiento',
         'vigencia_imss': 'archivo_vigencia_imss',
+        'formato_solicitud': 'archivo_formato_solicitud',
     }
 
     if campo not in columnas_validas:
@@ -575,6 +579,7 @@ def generar_orden_pago(co):
     archivo_clabe = r[24]
     archivo_acta = r[27] if len(r) > 27 else None
     archivo_vigencia_imss = r[28] if len(r) > 28 else None
+    archivo_solicitud = r[29] if len(r) > 29 else None
 
     cursor.execute(
         'SELECT nombre_archivo FROM reportes_mensuales WHERE alumno_co = ? AND mes_anio = ?',
@@ -733,6 +738,11 @@ def generar_orden_pago(co):
             path_imss = os.path.join(app.config['UPLOAD_FOLDER'], archivo_vigencia_imss)
             if os.path.exists(path_imss):
                 zf.write(path_imss, arcname=f"VigenciaIMSS_{archivo_vigencia_imss}")
+
+        if archivo_solicitud:
+            path_sol = os.path.join(app.config['UPLOAD_FOLDER'], archivo_solicitud)
+            if os.path.exists(path_sol):
+                zf.write(path_sol, arcname=f"FormatoSolicitud_{archivo_solicitud}")
                 
         if archivo_reporte_mes:
             path_rep = os.path.join(app.config['UPLOAD_FOLDER'], archivo_reporte_mes)

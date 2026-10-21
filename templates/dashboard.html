@@ -143,7 +143,6 @@
                         <td>{{ r[14] }}</td>
                     </tr>
 
-                    <!-- Modales de cada alumno (Acciones, Baja, Archivos, Ver Archivos) se mantienen exactamente igual... -->
                     <!-- Modal Principal de Gestión del Alumno -->
                     <div class="modal fade" id="modalAcciones{{ r[0] }}" tabindex="-1" aria-hidden="true">
                         <div class="modal-dialog">
@@ -228,6 +227,10 @@
                                         <div class="mb-2"><label class="fw-bold text-success">INE del alumno:</label><input type="file" class="form-control form-control-sm" name="ine"></div>
                                         <div class="mb-2"><label class="fw-bold text-success">Acta de Nacimiento:</label><input type="file" class="form-control form-control-sm" name="acta_nacimiento"></div>
                                         <div class="mb-2"><label class="fw-bold text-success">Constancia de Vigencia IMSS:</label><input type="file" class="form-control form-control-sm" name="vigencia_imss"></div>
+                                        
+                                        <!-- NUEVO: Formato de Solicitud -->
+                                        <div class="mb-2"><label class="fw-bold text-success">Formato de solicitud:</label><input type="file" class="form-control form-control-sm" name="formato_solicitud"></div>
+
                                         <div class="p-3 bg-light border rounded mb-2">
                                             <label class="fw-bold text-success mb-1">CLABE Interbancaria:</label>
                                             <div class="mb-2"><input type="text" class="form-control form-control-sm" name="banco_clabe" placeholder="Banco (Ej. BBVA, Santander)" value="{{ r[15] or '' }}"></div>
@@ -255,6 +258,11 @@
                                 </div>
                                 <div class="modal-body small">
                                     <ul class="list-group mb-3">
+                                        <!-- NUEVO: Formato de Solicitud en Ver Archivos -->
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Formato Solicitud:</strong> {% if r[29] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[29]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[29] %}<a href="/eliminar_archivo/{{ r[0] }}/formato_solicitud" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span><strong>Carta Presentación:</strong> {% if r[17] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[17]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[17] %}<a href="/eliminar_archivo/{{ r[0] }}/carta_presentacion" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
