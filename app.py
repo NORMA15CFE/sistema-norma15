@@ -954,7 +954,7 @@ def eliminar_oficio_zona(zona, nombre_archivo):
 
 
 # ==========================================
-# DESCARGA DE EXCEL NORMA 15 (CON OPENPYXL - COMPATIBLE CON LINUX/RENDER)
+# DESCARGA DE EXCEL NORMA 15 (MANTENIENDO PLANTILLA ORIGINAL plantillareporte_norma15 Y FILA 15)
 # ==========================================
 @app.route('/descargar_excel')
 def descargar_excel():
@@ -969,7 +969,7 @@ def descargar_excel():
 
     base_dir = os.path.abspath(os.path.dirname(__file__))
     plantilla_excel = os.path.join(base_dir, 'plantillareporte_norma15.xlsx')
-    output_filename = 'Informe_Norma15_Consolidado.xlsx'
+    output_filename = 'Informe_Norma15_Por_Zonas.xlsx'
     output_path = os.path.join(base_dir, output_filename)
 
     try:
@@ -977,11 +977,19 @@ def descargar_excel():
             flash('Error: No se encontró la plantilla "plantillareporte_norma15.xlsx".')
             return redirect(url_for('dashboard'))
 
+        # Cargamos tu plantilla original conservando formato, imágenes y estilos
         wb = openpyxl.load_workbook(plantilla_excel)
-        ws = wb.active
+        plantilla_ws = wb.active
+        plantilla_ws.title = "Base"
 
-        start_row = 15
-        row_idx = start_row
+        # Agrupamos los registros por zona (sección)
+        registros_por_zona = {}
+        for r in registros:
+            zona = r[1]
+            if zona not in registros_por_zona:
+                registros_por_zona[zona] = []
+            registros_por_zona[zona].append(r)
+
         thin_border = Border(
             left=Side(style='thin', color='000000'),
             right=Side(style='thin', color='000000'),
@@ -989,41 +997,57 @@ def descargar_excel():
             bottom=Side(style='thin', color='000000')
         )
 
-        for idx, r in enumerate(registros, start=1):
-            try:
-                f_inicio_obj = datetime.strptime(r[7], '%Y-%m-%d')
-                anio = f_inicio_obj.strftime('%Y')
-                mes_en = f_inicio_obj.strftime('%B')
-                mes = MESES_ESP.get(mes_en, mes_en).capitalize()
-            except:
-                anio = '2026'
-                mes = 'Actual'
+        # Mes actual en español basado en la fecha de hoy
+        now_dt = datetime.now()
+        mes_actual_en = now_dt.strftime('%B')
+        mes_actual_es = MESES_ESP.get(mes_actual_en, mes_actual_en).capitalize()
+        anio_actual = now_dt.strftime('%Y')
 
-            valores_fila = [
-                idx, anio, mes, 'Distribución', r[1], r[3], r[2], r[5], r[6], r[7], r[8], r[14]
-            ]
+        primer_pestana = True
 
-            for c_offset, val in enumerate(valores_fila):
-                col_num = 3 + c_offset
-                cell = ws.cell(row=row_idx, column=col_num)
-                
-                # Manejo de celdas combinadas para evitar el error de lectura
-                if isinstance(cell, MergedCell):
-                    for range_merged in ws.merged_cells.ranges:
-                        if cell.coordinate in range_merged:
-                            cell = ws.cell(row=range_merged.min_row, column=range_merged.min_col)
-                            break
+        for zona, regs in registros_por_zona.items():
+            nombre_pestana = zona.replace("/", "-").replace("\\", "-")[:30]
 
-                cell.value = val
-                cell.font = Font(name='Arial', size=9, color='000000')
-                cell.border = thin_border
+            if primer_pestana:
+                ws = plantilla_ws
+                ws.title = nombre_pestana
+                primer_pestana = False
+            else:
+                ws = wb.copy_worksheet(plantilla_ws)
+                ws.title = nombre_pestana
 
-                if col_num in [3, 4, 5, 12, 13]:
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
-                else:
-                    cell.alignment = Alignment(horizontal='left', vertical='center')
+            start_row = 15  # <--- Los datos empiezan exactamente en la fila 15 como pediste
+            row_idx = start_row
 
-            row_idx += 1
+            for idx, r in enumerate(regs, start=1):
+                # Columnas mapeadas: C(3)=No, D(4)=Año, E(5)=Mes, F(6)=Coordinación, G(7)=Zona, H(8)=Tipo Apoyo, I(9)=Nombre, J(10)=Institución, K(11)=Carrera, L(12)=Inicio, M(13)=Fin, N(14)=Remuneración
+                valores_fila = [
+                    idx, anio_actual, mes_actual_es, 'Distribución', r[1], r[3], r[2], r[5], r[6], r[7], r[8], r[14]
+                ]
+
+                for c_offset, val in enumerate(valores_fila):
+                    col_num = 3 + c_offset
+                    cell = ws.cell(row=row_idx, column=col_num)
+                    
+                    if isinstance(cell, MergedCell):
+                        for range_merged in ws.merged_cells.ranges:
+                            if cell.coordinate in range_merged:
+                                cell = ws.cell(row=range_merged.min_row, column=range_merged.min_col)
+                                break
+
+                    cell.value = val
+                    cell.font = Font(name='Arial', size=9, color='000000')
+                    cell.border = thin_border
+
+                    if col_num in [3, 4, 5, 12, 13]:
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    else:
+                        cell.alignment = Alignment(horizontal='left', vertical='center')
+
+                row_idx += 1
+
+        if "Base" in wb.sheetnames and len(wb.sheetnames) > 1:
+            del wb["Base"]
 
         if os.path.exists(output_path):
             os.remove(output_path)
