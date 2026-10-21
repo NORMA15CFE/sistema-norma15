@@ -1,0 +1,1483 @@
+from datetime import datetime
+import os
+import zipfile
+import io
+import docx
+from docx.text.paragraph import Paragraph
+from flask import (
+    Flask,
+    flash,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    session,
+    url_for,
+)
+import pythoncom
+import sqlite3
+import win32com.client
+from werkzeug.utils import secure_filename
+
+app = Flask(__name__)
+app.secret_key = 'clave_secreta_cfe_norma15'
+
+UPLOAD_FOLDER = 'static/uploads_alumnos'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+USUARIOS_PERMITIDOS = {
+    'DJ000': {'nombre': 'Oficinas Divisionales', 'rol': 'admin'},
+    'DJ010': {'nombre': 'Poza Rica', 'rol': 'seccion'},
+    'DJ020': {'nombre': 'Xalapa', 'rol': 'seccion'},
+    'DJ030': {'nombre': 'Teziutlán', 'rol': 'seccion'},
+    'DJ060': {'nombre': 'Veracruz', 'rol': 'seccion'},
+    'DJO70': {'nombre': 'Papaloapan', 'rol': 'seccion'},
+    'DJ100': {'nombre': 'Los Tuxtlas', 'rol': 'seccion'},
+    'DJ110': {'nombre': 'Coatzacoalcos', 'rol': 'seccion'},
+    'DJ130': {'nombre': 'Orizaba', 'rol': 'seccion'},
+    'DJ140': {'nombre': 'Córdoba', 'rol': 'seccion'},
+}
+
+MESES_ESP = {
+    'January': 'enero',
+    'February': 'febrero',
+    'March': 'marzo',
+    'April': 'abril',
+    'May': 'mayo',
+    'June': 'junio',
+    'July': 'julio',
+    'August': 'agosto',
+    'September': 'septiembre',
+    'October': 'octubre',
+    'November': 'noviembre',
+    'December': 'diciembre',
+}
+
+
+def fecha_a_espanol(dt_obj):
+    dia = dt_obj.strftime('%d')
+    mes_en = dt_obj.strftime('%B')
+    anio = dt_obj.strftime('%Y')
+    mes_es = MESES_ESP.get(mes_en, mes_en)
+    return f'{dia} de {mes_es} de {anio}'
+
+
+def init_db():
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER)
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS registros (
+            co INTEGER PRIMARY KEY AUTOINCREMENT,
+            seccion TEXT NOT NULL,
+            nombre_alumno TEXT NOT NULL,
+            tipo_apoyo TEXT NOT NULL,
+            area TEXT NOT NULL,
+            institucion TEXT NOT NULL,
+            carrera TEXT NOT NULL,
+            fecha_inicio TEXT NOT NULL,
+            fecha_fin TEXT NOT NULL,
+            estatus TEXT NOT NULL,
+            horas INTEGER NOT NULL,
+            es_familiar TEXT NOT NULL,
+            nombre_familiar TEXT,
+            parentesco_familiar TEXT,
+            tipo_remuneracion TEXT NOT NULL,
+            banco_clabe TEXT,
+            numero_clabe TEXT,
+            archivo_carta_presentacion TEXT,
+            archivo_carta_aceptacion TEXT,
+            archivo_constancia TEXT,
+            archivo_buena_conducta TEXT,
+            archivo_ine TEXT,
+            archivo_reporte_mensual TEXT,
+            archivo_recibo_pago TEXT,
+            archivo_clabe TEXT,
+            archivo_contrato TEXT,
+            motivo_baja TEXT,
+            archivo_acta_nacimiento TEXT,
+            archivo_vigencia_imss TEXT
+        )
+    ''')
+
+    for col_sql in ["ALTER TABLE registros ADD COLUMN motivo_baja TEXT", 
+                    "ALTER TABLE registros ADD COLUMN archivo_acta_nacimiento TEXT", 
+                    "ALTER TABLE registros ADD COLUMN archivo_vigencia_imss TEXT"]:
+        try:
+            cursor.execute(col_sql)
+        except sqlite3.OperationalError:
+            pass
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS reportes_mensuales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alumno_co INTEGER,
+            mes_anio TEXT NOT NULL,
+            nombre_archivo TEXT NOT NULL,
+            FOREIGN KEY (alumno_co) REFERENCES registros (co) ON DELETE CASCADE
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS recibos_alumno_mensuales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alumno_co INTEGER,
+            mes_anio TEXT NOT NULL,
+            nombre_archivo TEXT NOT NULL,
+            FOREIGN KEY (alumno_co) REFERENCES registros (co) ON DELETE CASCADE
+        )
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS recibos_pago_mensuales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            alumno_co INTEGER,
+            mes_anio TEXT NOT NULL,
+            nombre_archivo TEXT NOT NULL,
+            FOREIGN KEY (alumno_co) REFERENCES registros (co) ON DELETE CASCADE
+        )
+    ''')
+
+    conn.commit()
+    conn.close()
+
+
+@app.route('/')
+def login():
+    return render_template('login.html')
+
+
+@app.route('/login', methods=['POST'])
+def hacer_login():
+    password = request.form.get('password')
+    if password in USUARIOS_PERMITIDOS:
+        session['usuario'] = USUARIOS_PERMITIDOS[password]['nombre']
+        session['rol'] = USUARIOS_PERMITIDOS[password]['rol']
+        return redirect(url_for('dashboard'))
+    else:
+        flash('Contraseña incorrecta. Intenta de nuevo.')
+        return redirect(url_for('login'))
+
+
+@app.route('/dashboard')
+def dashboard():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    zona_filtro = request.args.get('zona_filtro')
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+
+    if session['rol'] == 'admin':
+        if zona_filtro and zona_filtro != 'TODOS':
+            cursor.execute(
+                'SELECT * FROM registros WHERE seccion = ? ORDER BY co ASC',
+                (zona_filtro,),
+            )
+        else:
+            cursor.execute('SELECT * FROM registros ORDER BY co ASC')
+    else:
+        cursor.execute(
+            'SELECT * FROM registros WHERE seccion = ? ORDER BY co ASC',
+            (session['usuario'],),
+        )
+
+    registros = cursor.fetchall()
+    conn.close()
+    return render_template(
+        'dashboard.html',
+        registros=registros,
+        usuario=session['usuario'],
+        rol=session['rol'],
+        secciones_disponibles=list(USUARIOS_PERMITIDOS.values()),
+        zona_filtro=zona_filtro,
+    )
+
+
+@app.route('/registrar', methods=['GET', 'POST'])
+def registrar():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    if request.method == 'POST':
+        seccion = session['usuario']
+        nombre_alumno = request.form['nombre_alumno']
+        tipo_apoyo = request.form['tipo_apoyo']
+        area = request.form['area']
+        institucion = request.form['institucion']
+        carrera = request.form['carrera']
+        fecha_inicio_str = request.form['fecha_inicio']
+        fecha_fin_str = request.form['fecha_fin']
+        horas = int(request.form['horas'])
+        es_familiar = request.form.get('es_familiar', 'No')
+
+        hoy = datetime.now().date()
+        f_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+        estatus = 'Finalizado' if hoy > f_fin else 'Activo'
+
+        if es_familiar == 'Sí':
+            nombre_familiar = request.form.get('nombre_familiar', '')
+            parentesco_familiar = request.form.get('parentesco_familiar', '')
+            monto_apoyo = request.form.get('monto_apoyo', '2,580.86')
+            tipo_remuneracion = f"Apoyo económico: ${monto_apoyo} pesos"
+        else:
+            nombre_familiar = 'N/A'
+            parentesco_familiar = 'N/A'
+            tipo_remuneracion = 'Título gratuito'
+
+        conn = sqlite3.connect('datos.db')
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+                INSERT INTO registros (seccion, nombre_alumno, tipo_apoyo, area, institucion, carrera, fecha_inicio, fecha_fin, estatus, horas, es_familiar, nombre_familiar, parentesco_familiar, tipo_remuneracion)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                seccion,
+                nombre_alumno,
+                tipo_apoyo,
+                area,
+                institucion,
+                carrera,
+                fecha_inicio_str,
+                fecha_fin_str,
+                estatus,
+                horas,
+                es_familiar,
+                nombre_familiar,
+                parentesco_familiar,
+                tipo_remuneracion,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        flash('Estudiante registrado exitosamente.')
+        return redirect(url_for('dashboard'))
+
+    return render_template('registrar.html')
+
+
+@app.route('/editar/<int:co>', methods=['GET', 'POST'])
+def editar(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+
+    if request.method == 'POST':
+        nombre_alumno = request.form['nombre_alumno']
+        tipo_apoyo = request.form['tipo_apoyo']
+        area = request.form['area']
+        institucion = request.form['institucion']
+        carrera = request.form['carrera']
+        fecha_inicio_str = request.form['fecha_inicio']
+        fecha_fin_str = request.form['fecha_fin']
+        horas = int(request.form['horas'])
+        es_familiar = request.form.get('es_familiar', 'No')
+
+        hoy = datetime.now().date()
+        f_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+        estatus = 'Finalizado' if hoy > f_fin else 'Activo'
+
+        if es_familiar == 'Sí':
+            nombre_familiar = request.form.get('nombre_familiar', '')
+            parentesco_familiar = request.form.get('parentesco_familiar', '')
+            monto_apoyo = request.form.get('monto_apoyo', '2,580.86')
+            tipo_remuneracion = f"Apoyo económico: ${monto_apoyo} pesos"
+        else:
+            nombre_familiar = 'N/A'
+            parentesco_familiar = 'N/A'
+            tipo_remuneracion = 'Título gratuito'
+
+        if session['rol'] == 'admin':
+            cursor.execute(
+                '''
+                    UPDATE registros SET nombre_alumno=?, tipo_apoyo=?, area=?, institucion=?, carrera=?, fecha_inicio=?, fecha_fin=?, estatus=?, horas=?, es_familiar=?, nombre_familiar=?, parentesco_familiar=?, tipo_remuneracion=?
+                    WHERE co=?
+                ''',
+                (
+                    nombre_alumno,
+                    tipo_apoyo,
+                    area,
+                    institucion,
+                    carrera,
+                    fecha_inicio_str,
+                    fecha_fin_str,
+                    estatus,
+                    horas,
+                    es_familiar,
+                    nombre_familiar,
+                    parentesco_familiar,
+                    tipo_remuneracion,
+                    co,
+                ),
+            )
+        else:
+            cursor.execute(
+                '''
+                    UPDATE registros SET nombre_alumno=?, tipo_apoyo=?, area=?, institucion=?, carrera=?, fecha_inicio=?, fecha_fin=?, estatus=?, horas=?, es_familiar=?, nombre_familiar=?, parentesco_familiar=?, tipo_remuneracion=?
+                    WHERE co=? AND seccion=?
+                ''',
+                (
+                    nombre_alumno,
+                    tipo_apoyo,
+                    area,
+                    institucion,
+                    carrera,
+                    fecha_inicio_str,
+                    fecha_fin_str,
+                    estatus,
+                    horas,
+                    es_familiar,
+                    nombre_familiar,
+                    parentesco_familiar,
+                    tipo_remuneracion,
+                    co,
+                    session['usuario'],
+                ),
+            )
+
+        conn.commit()
+        conn.close()
+        flash('Datos del alumno actualizados correctamente.')
+        return redirect(url_for('dashboard'))
+
+    if session['rol'] == 'admin':
+        cursor.execute('SELECT * FROM registros WHERE co = ?', (co,))
+    else:
+        cursor.execute(
+            'SELECT * FROM registros WHERE co = ? AND seccion = ?',
+            (co, session['usuario']),
+        )
+
+    alumno = cursor.fetchone()
+    conn.close()
+
+    if not alumno:
+        flash('Registro no encontrado o sin permisos.')
+        return redirect(url_for('dashboard'))
+
+    return render_template('editar.html', alumno=alumno)
+
+
+@app.route('/dar_de_baja/<int:co>', methods=['POST'])
+def dar_de_baja(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    motivo = request.form.get('motivo_baja', '').strip()
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    if session['rol'] == 'admin':
+        cursor.execute('UPDATE registros SET estatus = "Baja obligada", motivo_baja = ? WHERE co = ?', (motivo, co))
+    else:
+        cursor.execute('UPDATE registros SET estatus = "Baja obligada", motivo_baja = ? WHERE co = ? AND seccion = ?', (motivo, co, session['usuario']))
+    
+    conn.commit()
+    conn.close()
+    flash('Alumno dado de baja correctamente (Baja obligada).')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/subir_archivos/<int:co>', methods=['POST'])
+def subir_archivos(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    banco = request.form.get('banco_clabe', '').strip()
+    num_clabe = request.form.get('numero_clabe', '').strip()
+    file_clabe = request.files.get('clabe')
+
+    if (
+        file_clabe
+        and file_clabe.filename != ''
+        or banco
+        or len(num_clabe) > 0
+    ):
+        if not banco or len(num_clabe) != 18 or not num_clabe.isdigit():
+            flash(
+                'Error: Para la CLABE Interbancaria es obligatorio indicar el banco'
+                ' y un número de exactamente 18 dígitos numéricos.'
+            )
+            return redirect(url_for('dashboard'))
+
+    campos_archivos = {
+        'carta_presentacion': 'archivo_carta_presentacion',
+        'carta_aceptacion': 'archivo_carta_aceptacion',
+        'constancia': 'archivo_constancia',
+        'buena_conducta': 'archivo_buena_conducta',
+        'ine': 'archivo_ine',
+        'clabe': 'archivo_clabe',
+        'contrato': 'archivo_contrato',
+        'acta_nacimiento': 'archivo_acta_nacimiento',
+        'vigencia_imss': 'archivo_vigencia_imss',
+    }
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+
+    if banco and num_clabe:
+        cursor.execute(
+            'UPDATE registros SET banco_clabe = ?, numero_clabe = ? WHERE co = ?',
+            (banco, num_clabe, co),
+        )
+
+    for input_name, db_col in campos_archivos.items():
+        file = request.files.get(input_name)
+        if file and file.filename != '':
+            filename = secure_filename(f'alumno_{co}_{input_name}_{file.filename}')
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            cursor.execute(
+                f'UPDATE registros SET {db_col} = ? WHERE co = ?', (filename, co)
+            )
+    conn.commit()
+    conn.close()
+    flash('Archivos y datos bancarios actualizados correctamente.')
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/eliminar_archivo/<int:co>/<string:campo>')
+def eliminar_archivo(co, campo):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    columnas_validas = {
+        'carta_presentacion': 'archivo_carta_presentacion',
+        'carta_aceptacion': 'archivo_carta_aceptacion',
+        'constancia': 'archivo_constancia',
+        'buena_conducta': 'archivo_buena_conducta',
+        'ine': 'archivo_ine',
+        'clabe': 'archivo_clabe',
+        'contrato': 'archivo_contrato',
+        'acta_nacimiento': 'archivo_acta_nacimiento',
+        'vigencia_imss': 'archivo_vigencia_imss',
+    }
+
+    if campo not in columnas_validas:
+        flash('Campo de archivo no válido.')
+        return redirect(url_for('dashboard'))
+
+    db_col = columnas_validas[campo]
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute(f'SELECT {db_col} FROM registros WHERE co = ?', (co,))
+    row = cursor.fetchone()
+
+    if row and row[0]:
+        filename = row[0]
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+        cursor.execute(f'UPDATE registros SET {db_col} = NULL WHERE co = ?', (co,))
+        if db_col == 'archivo_clabe':
+            cursor.execute(
+                'UPDATE registros SET banco_clabe = NULL, numero_clabe = NULL WHERE'
+                ' co = ?',
+                (co,),
+            )
+        conn.commit()
+        flash('Archivo eliminado correctamente.')
+
+    conn.close()
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/seleccionar_mes_orden/<int:co>')
+def seleccionar_mes_orden(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros WHERE co = ?', (co,))
+    r = cursor.fetchone()
+    conn.close()
+
+    if not r:
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
+
+    f_inicio_str = r[7]
+    f_fin_str = r[8]
+
+    try:
+        dt_actual = datetime.strptime(f_inicio_str, '%Y-%m-%d').replace(
+            day=1
+        )
+        dt_final = datetime.strptime(f_fin_str, '%Y-%m-%d').replace(day=1)
+    except:
+        dt_actual = datetime(2026, 9, 1)
+        dt_final = datetime(2027, 3, 1)
+
+    meses_disponibles = []
+    while dt_actual <= dt_final:
+        mes_en = dt_actual.strftime('%B')
+        mes_es = MESES_ESP.get(mes_en, mes_en).capitalize()
+        anio = dt_actual.strftime('%Y')
+        meses_disponibles.append({
+            'valor': f'{mes_es} {anio}',
+            'texto': f'{mes_es} {anio}',
+        })
+        if dt_actual.month == 12:
+            dt_actual = dt_actual.replace(year=dt_actual.year + 1, month=1)
+        else:
+            dt_actual = dt_actual.replace(month=dt_actual.month + 1)
+
+    return render_template(
+        'seleccionar_mes.html', alumno=r, meses=meses_disponibles
+    )
+
+
+@app.route('/generar_orden_pago/<int:co>', methods=['POST'])
+def generar_orden_pago(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    mes_seleccionado = request.form.get(
+        'mes_reportado', 'Septiembre 2026'
+    )
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros WHERE co = ?', (co,))
+    r = cursor.fetchone()
+
+    if not r:
+        conn.close()
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
+
+    nombre_alumno = r[2]
+    tipo_apoyo = r[3].strip().lower()
+    f_inicio_str = r[7]
+    f_fin_str = r[8]
+    zona = r[1]
+
+    archivo_ine = r[21]
+    archivo_clabe = r[24]
+    archivo_acta = r[27] if len(r) > 27 else None
+    archivo_vigencia_imss = r[28] if len(r) > 28 else None
+
+    cursor.execute(
+        'SELECT nombre_archivo FROM reportes_mensuales WHERE alumno_co = ? AND mes_anio = ?',
+        (co, mes_seleccionado)
+    )
+    rep_row = cursor.fetchone()
+
+    cursor.execute(
+        'SELECT nombre_archivo FROM recibos_alumno_mensuales WHERE alumno_co = ? AND mes_anio = ?',
+        (co, mes_seleccionado)
+    )
+    recibo_alum_row = cursor.fetchone()
+
+    cursor.execute(
+        'SELECT nombre_archivo FROM recibos_pago_mensuales WHERE alumno_co = ? AND mes_anio = ?',
+        (co, mes_seleccionado)
+    )
+    recibo_emp_row = cursor.fetchone()
+    conn.close()
+
+    archivo_reporte_mes = rep_row[0] if rep_row else None
+    archivo_recibo_alum = recibo_alum_row[0] if recibo_alum_row else None
+    archivo_recibo_emp = recibo_emp_row[0] if recibo_emp_row else None
+
+    try:
+        dt_inicio = datetime.strptime(f_inicio_str, '%Y-%m-%d')
+        dt_fin = datetime.strptime(f_fin_str, '%Y-%m-%d')
+        f_inicio = dt_inicio.strftime('%d/%m/%Y')
+        f_fin = dt_fin.strftime('%d/%m/%Y')
+    except:
+        f_inicio = '01/09/2026'
+        f_fin = '01/03/2027'
+
+    mes_reportado = mes_seleccionado
+    hoy_str = fecha_a_espanol(datetime.now())
+
+    x_practicas = ''
+    x_servicio = ''
+    x_residencias = ''
+
+    if 'práctica' in tipo_apoyo or 'practica' in tipo_apoyo:
+        x_practicas = 'X'
+    elif 'servicio' in tipo_apoyo:
+        x_servicio = 'X'
+    elif (
+        'residencia' in tipo_apoyo
+        or 'estadía' in tipo_apoyo
+        or 'estadia' in tipo_apoyo
+    ):
+        x_residencias = 'X'
+    else:
+        x_servicio = 'X'
+
+    plantilla_path = 'RECIBO PAGO.docx'
+    if not os.path.exists(plantilla_path):
+        flash('Error: No se encontró el archivo "RECIBO PAGO.docx".')
+        return redirect(url_for('dashboard'))
+
+    doc = docx.Document(plantilla_path)
+
+    reemplazos = {
+        '[PERIODO]': f'Periodo: {f_inicio} al {f_fin}',
+        '[MES_REPORTADO]': f'Mes reportado: {mes_reportado}',
+        '[NOMBRE_ALUMNO]': f'C. {nombre_alumno}',
+        '[FECHA_ZONA]': f'{zona}, Ver., a {hoy_str}.',
+        '[X_PRACTICAS]': x_practicas,
+        '[X_SERV]': x_servicio,
+        '[X_SERVICIO]': x_servicio,
+        '[X_SERVICIOS]': x_servicio,
+        '[X_RES]': x_residencias,
+        '[X_RESIDENCIAS]': x_residencias,
+    }
+
+    def procesar_parrafo_obj(parrafo):
+        texto_p = parrafo.text
+        hubo_cambio = False
+        for clave in reemplazos:
+            if clave in texto_p:
+                texto_p = texto_p.replace(clave, reemplazos[clave])
+                hubo_cambio = True
+
+        if hubo_cambio:
+            if parrafo.runs:
+                estilo_fuente = parrafo.runs[0].font.name
+                tamano_fuente = parrafo.runs[0].font.size
+                subrayado = parrafo.runs[0].underline
+                parrafo.runs[0].text = texto_p
+                if estilo_fuente:
+                    parrafo.runs[0].font.name = estilo_fuente
+                if tamano_fuente:
+                    parrafo.runs[0].font.size = tamano_fuente
+                if subrayado is not None:
+                    parrafo.runs[0].underline = subrayado
+                for run in parrafo.runs[1:]:
+                    run.text = ''
+            else:
+                parrafo.add_run(texto_p)
+
+    for p in doc.paragraphs:
+        procesar_parrafo_obj(p)
+
+    def procesar_celdas(cells):
+        for cell in cells:
+            for p in cell.paragraphs:
+                procesar_parrafo_obj(p)
+            if cell.tables:
+                for sub_table in cell.tables:
+                    for sub_row in sub_table.rows:
+                        procesar_celdas(sub_row.cells)
+
+    for table in doc.tables:
+        for row in table.rows:
+            procesar_celdas(row.cells)
+
+    def buscar_y_reemplazar_en_todos_los_nodos(element):
+        for child in element:
+            if (
+                'txbxContent' in child.tag
+                or 'textbox' in child.tag
+                or 'shape' in child.tag
+                or 'graphic' in child.tag
+            ):
+                for p_elem in child.iter(
+                    '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}p'
+                ):
+                    p_obj = Paragraph(p_elem, doc)
+                    procesar_parrafo_obj(p_obj)
+            buscar_y_reemplazar_en_todos_los_nodos(child)
+
+    buscar_y_reemplazar_en_todos_los_nodos(doc.element.body)
+
+    for section in doc.sections:
+        for p in section.header.paragraphs:
+            procesar_parrafo_obj(p)
+        for p in section.footer.paragraphs:
+            procesar_parrafo_obj(p)
+
+    output_filename = f'Recibo_Pago_{nombre_alumno.replace(" ", "_")}.docx'
+    doc.save(output_filename)
+
+    memory_file = io.BytesIO()
+    with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+        zf.write(output_filename, arcname=output_filename)
+        
+        if archivo_ine:
+            path_ine = os.path.join(app.config['UPLOAD_FOLDER'], archivo_ine)
+            if os.path.exists(path_ine):
+                zf.write(path_ine, arcname=f"INE_{archivo_ine}")
+
+        if archivo_acta:
+            path_acta = os.path.join(app.config['UPLOAD_FOLDER'], archivo_acta)
+            if os.path.exists(path_acta):
+                zf.write(path_acta, arcname=f"ActaNacimiento_{archivo_acta}")
+
+        if archivo_vigencia_imss:
+            path_imss = os.path.join(app.config['UPLOAD_FOLDER'], archivo_vigencia_imss)
+            if os.path.exists(path_imss):
+                zf.write(path_imss, arcname=f"VigenciaIMSS_{archivo_vigencia_imss}")
+                
+        if archivo_reporte_mes:
+            path_rep = os.path.join(app.config['UPLOAD_FOLDER'], archivo_reporte_mes)
+            if os.path.exists(path_rep):
+                zf.write(path_rep, arcname=f"ReporteMensual_{mes_seleccionado.replace(' ', '_')}_{archivo_reporte_mes}")
+
+        if archivo_recibo_alum:
+            path_rec_alum = os.path.join(app.config['UPLOAD_FOLDER'], archivo_recibo_alum)
+            if os.path.exists(path_rec_alum):
+                zf.write(path_rec_alum, arcname=f"ReciboPagoAlumno_{mes_seleccionado.replace(' ', '_')}_{archivo_recibo_alum}")
+
+        if archivo_recibo_emp:
+            path_rec_emp = os.path.join(app.config['UPLOAD_FOLDER'], archivo_recibo_emp)
+            if os.path.exists(path_rec_emp):
+                zf.write(path_rec_emp, arcname=f"OficioPagoEmpresa_{mes_seleccionado.replace(' ', '_')}_{archivo_recibo_emp}")
+                
+        if archivo_clabe:
+            path_clabe = os.path.join(app.config['UPLOAD_FOLDER'], archivo_clabe)
+            if os.path.exists(path_clabe):
+                zf.write(path_clabe, arcname=f"CLABE_{archivo_clabe}")
+
+    memory_file.seek(0)
+
+    if os.path.exists(output_filename):
+        os.remove(output_filename)
+
+    return send_file(
+        memory_file,
+        as_attachment=True,
+        download_name=f'Paquete_Pago_{nombre_alumno.replace(" ", "_")}.zip',
+        mimetype='application/zip'
+    )
+
+
+@app.route('/generar_convenio_gratuito/<int:co>')
+def generar_convenio_gratuito(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros WHERE co = ?', (co,))
+    r = cursor.fetchone()
+    conn.close()
+
+    if not r:
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
+
+    zona = r[1]
+    nombre_alumno = r[2]
+    tipo_apoyo = r[3]
+    institucion = r[5]
+    carrera = r[6]
+    f_inicio_str = r[7]
+    f_fin_str = r[8]
+
+    try:
+        dt_inicio = datetime.strptime(f_inicio_str, '%Y-%m-%d')
+        dt_fin = datetime.strptime(f_fin_str, '%Y-%m-%d')
+        f_inicio_formato = f"{dt_inicio.strftime('%d')} DE {MESES_ESP.get(dt_inicio.strftime('%B'), dt_inicio.strftime('%B')).upper()} DEL {dt_inicio.strftime('%Y')}"
+        f_fin_formato = f"{dt_fin.strftime('%d')} DE {MESES_ESP.get(dt_fin.strftime('%B'), dt_fin.strftime('%B')).upper()} DEL {dt_fin.strftime('%Y')}"
+    except:
+        f_inicio_formato = "02 DE FEBRERO DEL 2026"
+        f_fin_formato = "02 DE AGOSTO DEL 2026"
+
+    dt_hoy = datetime.now()
+    dia_hoy = dt_hoy.strftime('%d')
+    mes_hoy = MESES_ESP.get(dt_hoy.strftime('%B'), dt_hoy.strftime('%B')).upper()
+    anio_hoy = dt_hoy.strftime('%Y')
+    f_actual_formato = f"{dia_hoy} DIAS DEL MES DE {mes_hoy} DEL {anio_hoy}"
+
+    plantilla_convenio = 'CONVENIO A TITULO GRATUITO.docx'
+    if not os.path.exists(plantilla_convenio):
+        flash('Error: No se encontró el archivo "CONVENIO A TITULO GRATUITO.docx".')
+        return redirect(url_for('dashboard'))
+
+    doc = docx.Document(plantilla_convenio)
+
+    reemplazos = {
+        '[TIPO_DE_APOYO]': tipo_apoyo.upper(),
+        '[TIPO- DE- APOYO]': tipo_apoyo.upper(),
+        '[NOMBRE_ALUMNO]': nombre_alumno,
+        '[CARRERA]': carrera,
+        '[INSTITUCION_EDUCATIVA]': institucion,
+        '[INSTITUCIÓN EDUCATIVA]': institucion,
+        '[FECHA_INICIO]': f_inicio_formato,
+        '[FECHA_FIN]': f_fin_formato,
+        '[FECHA_ACTUAL]': f_actual_formato,
+        'Xalapa, Veracruz': zona,
+        'XALAPA, VERACRUZ': zona.upper(),
+    }
+
+    def procesar_parrafo_obj(parrafo):
+        texto_p = parrafo.text
+        hubo_cambio = False
+        for clave in reemplazos:
+            if clave in texto_p:
+                texto_p = texto_p.replace(clave, reemplazos[clave])
+                hubo_cambio = True
+        if hubo_cambio:
+            if parrafo.runs:
+                estilo_fuente = parrafo.runs[0].font.name
+                tamano_fuente = parrafo.runs[0].font.size
+                subrayado = parrafo.runs[0].underline
+                parrafo.runs[0].text = texto_p
+                if estilo_fuente:
+                    parrafo.runs[0].font.name = estilo_fuente
+                if tamano_fuente:
+                    parrafo.runs[0].font.size = tamano_fuente
+                if subrayado is not None:
+                    parrafo.runs[0].underline = subrayado
+                for run in parrafo.runs[1:]:
+                    run.text = ''
+            else:
+                parrafo.add_run(texto_p)
+
+    for p in doc.paragraphs:
+        procesar_parrafo_obj(p)
+
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    procesar_parrafo_obj(p)
+
+    output_filename = f'Convenio_Gratuito_{nombre_alumno.replace(" ", "_")}.docx'
+    doc.save(output_filename)
+
+    return send_file(
+        output_filename,
+        as_attachment=True,
+        download_name=output_filename,
+        mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    )
+
+
+# ==========================================
+# GESTIÓN DE OFICIOS DE PAGO POR ZONA
+# ==========================================
+@app.route('/gestionar_oficios_zona', methods=['GET'])
+def gestionar_oficios_zona():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    usuario_actual = session['usuario']
+    rol_usuario = session['rol']
+    
+    if rol_usuario == 'admin':
+        zona_seleccionada = request.args.get('zona_seleccionada', 'Oficinas Divisionales')
+    else:
+        zona_seleccionada = usuario_actual
+
+    carpeta_zona = os.path.join('static', 'oficios_pago_zona', zona_seleccionada)
+    os.makedirs(carpeta_zona, exist_ok=True)
+    
+    archivos_zona = []
+    if os.path.exists(carpeta_zona):
+        archivos_zona = os.listdir(carpeta_zona)
+
+    todas_las_zonas = [sec['nombre'] for sec in USUARIOS_PERMITIDOS.values()]
+
+    return render_template(
+        'gestionar_oficios_zona.html',
+        zona_seleccionada=zona_seleccionada,
+        archivos_zona=archivos_zona,
+        todas_las_zonas=todas_las_zonas,
+        rol=rol_usuario,
+        usuario=usuario_actual
+    )
+
+
+@app.route('/subir_oficio_zona', methods=['POST'])
+def subir_oficio_zona():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    zona_destino = request.form.get('zona_destino')
+    rol_usuario = session['rol']
+    usuario_actual = session['usuario']
+
+    if rol_usuario != 'admin' and zona_destino != usuario_actual:
+        flash('No tienes permisos para subir archivos a otra zona.')
+        return redirect(url_for('gestionar_oficios_zona'))
+
+    file = request.files.get('archivo_oficio_zona')
+    if file and file.filename != '':
+        filename = secure_filename(file.filename)
+        carpeta_zona = os.path.join('static', 'oficios_pago_zona', zona_destino)
+        os.makedirs(carpeta_zona, exist_ok=True)
+        file.save(os.path.join(carpeta_zona, filename))
+        flash(f'Oficio de pago subido correctamente para la zona {zona_destino}.')
+
+    return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona_destino))
+
+
+@app.route('/eliminar_oficio_zona/<string:zona>/<string:nombre_archivo>')
+def eliminar_oficio_zona(zona, nombre_archivo):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    rol_usuario = session['rol']
+    usuario_actual = session['usuario']
+
+    if rol_usuario != 'admin' and zona != usuario_actual:
+        flash('No tienes permisos para eliminar archivos de otra zona.')
+        return redirect(url_for('gestionar_oficios_zona'))
+
+    filepath = os.path.join('static', 'oficios_pago_zona', zona, nombre_archivo)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        flash('Oficio de pago eliminado correctamente.')
+
+    return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona))
+
+
+# ==========================================
+# DESCARGA DE EXCEL NORMA 15 (UNA SOLA HOJA CONSOLIDADA - ORDENADA POR ZONA)
+# ==========================================
+@app.route('/descargar_excel')
+def descargar_excel():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros ORDER BY seccion ASC, co ASC')
+    registros = cursor.fetchall()
+    conn.close()
+
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    plantilla_excel = os.path.join(base_dir, 'plantillareporte_norma15.xlsx')
+    output_filename = 'Informe_Norma15_Consolidado.xlsx'
+    output_path = os.path.join(base_dir, output_filename)
+
+    pythoncom.CoInitialize()
+
+    try:
+        if not os.path.exists(plantilla_excel):
+            flash('Error: No se encontró la plantilla "plantillareporte_norma15.xlsx".')
+            pythoncom.CoUninitialize()
+            return redirect(url_for('dashboard'))
+
+        excel = win32com.client.Dispatch('Excel.Application')
+        excel.Visible = False
+        excel.DisplayAlerts = False
+
+        wb = excel.Workbooks.Open(plantilla_excel)
+        ws = wb.Sheets(1)
+
+        start_row = 15
+        row_idx = start_row
+        for idx, r in enumerate(registros, start=1):
+            try:
+                f_inicio_obj = datetime.strptime(r[7], '%Y-%m-%d')
+                anio = f_inicio_obj.strftime('%Y')
+                mes_en = f_inicio_obj.strftime('%B')
+                mes = MESES_ESP.get(mes_en, mes_en).capitalize()
+            except:
+                anio = '2026'
+                mes = 'Actual'
+
+            ws.Cells(row_idx, 3).Value = idx
+            ws.Cells(row_idx, 4).Value = anio
+            ws.Cells(row_idx, 5).Value = mes
+            ws.Cells(row_idx, 6).Value = 'Distribución'
+            ws.Cells(row_idx, 7).Value = r[1]
+            ws.Cells(row_idx, 8).Value = r[3]
+            ws.Cells(row_idx, 9).Value = r[2]
+            ws.Cells(row_idx, 10).Value = r[5]
+            ws.Cells(row_idx, 11).Value = r[6]
+            ws.Cells(row_idx, 12).Value = r[7]
+            ws.Cells(row_idx, 13).Value = r[8]
+            ws.Cells(row_idx, 14).Value = r[14]
+
+            for col in range(3, 15):
+                cell = ws.Cells(row_idx, col)
+                cell.Font.Name = 'Arial'
+                cell.Font.Size = 9
+                cell.Font.Color = 0
+                for border_id in range(7, 13):
+                    cell.Borders(border_id).LineStyle = 1
+                    cell.Borders(border_id).Weight = 2
+                    cell.Borders(border_id).Color = 0
+
+                if col in [3, 4, 5, 12, 13]:
+                    cell.HorizontalAlignment = -4108
+                else:
+                    cell.HorizontalAlignment = -4131
+                cell.VerticalAlignment = -4108
+
+            row_idx += 1
+
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+        wb.SaveAs(output_path, FileFormat=51)
+        wb.Close(SaveChanges=False)
+        excel.Quit()
+
+        pythoncom.CoUninitialize()
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=output_filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+    except Exception as e:
+        try:
+            wb.Close(SaveChanges=False)
+            excel.Quit()
+        except:
+            pass
+        pythoncom.CoUninitialize()
+        flash(f'Error al generar el reporte con Excel: {str(e)}')
+        return redirect(url_for('dashboard'))
+
+
+# ==========================================
+# DESCARGA DE EXCEL TODOS (HISTORIAL)
+# ==========================================
+@app.route('/descargar_excel_todos')
+def descargar_excel_todos():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros ORDER BY co ASC')
+    registros = cursor.fetchall()
+    conn.close()
+
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+    plantilla_excel = os.path.join(base_dir, 'plantillareporte_todos.xlsx')
+    output_filename = 'Informe_Historial_Todos_Alumnos.xlsx'
+    output_path = os.path.join(base_dir, output_filename)
+
+    pythoncom.CoInitialize()
+
+    try:
+        if not os.path.exists(plantilla_excel):
+            flash('Error: No se encontró la plantilla "plantillareporte_todos.xlsx".')
+            pythoncom.CoUninitialize()
+            return redirect(url_for('dashboard'))
+
+        excel = win32com.client.Dispatch('Excel.Application')
+        excel.Visible = False
+        excel.DisplayAlerts = False
+
+        wb = excel.Workbooks.Open(plantilla_excel)
+        ws = wb.Sheets(1)
+
+        start_row = 4
+        row_idx = start_row
+
+        for idx, r in enumerate(registros, start=1):
+            ws.Cells(row_idx, 1).Value = idx
+            ws.Cells(row_idx, 2).Value = r[2]
+            ws.Cells(row_idx, 3).Value = r[3]
+            ws.Cells(row_idx, 4).Value = r[4]
+            ws.Cells(row_idx, 5).Value = r[5]
+            ws.Cells(row_idx, 6).Value = r[6]
+            ws.Cells(row_idx, 7).Value = r[7]
+            ws.Cells(row_idx, 8).Value = r[8]
+            ws.Cells(row_idx, 9).Value = r[9]
+            ws.Cells(row_idx, 10).Value = r[10]
+            ws.Cells(row_idx, 11).Value = r[11]
+            ws.Cells(row_idx, 12).Value = r[12]
+            ws.Cells(row_idx, 13).Value = r[14]
+
+            for col in range(1, 14):
+                cell = ws.Cells(row_idx, col)
+                cell.Font.Name = 'Arial'
+                cell.Font.Size = 9
+                cell.Font.Color = 0
+                for border_id in range(7, 13):
+                    cell.Borders(border_id).LineStyle = 1
+                    cell.Borders(border_id).Weight = 2
+                    cell.Borders(border_id).Color = 0
+
+                if col in [1, 7, 8, 9, 10, 11]:
+                    cell.HorizontalAlignment = -4108
+                else:
+                    cell.HorizontalAlignment = -4131
+                cell.VerticalAlignment = -4108
+
+            row_idx += 1
+
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+        wb.SaveAs(output_path, FileFormat=51)
+        wb.Close(SaveChanges=False)
+        excel.Quit()
+
+        pythoncom.CoUninitialize()
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name=output_filename,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        )
+
+    except Exception as e:
+        try:
+            wb.Close(SaveChanges=False)
+            excel.Quit()
+        except:
+            pass
+        pythoncom.CoUninitialize()
+        flash(f'Error al generar el Excel de Historial: {str(e)}')
+        return redirect(url_for('dashboard'))
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
+# ==========================================
+# VENTANA 1: GESTIÓN DE REPORTES MENSUALES (ALUMNO)
+# ==========================================
+@app.route('/gestionar_reportes/<int:co>', methods=['GET'])
+def gestionar_reportes(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros WHERE co = ?', (co,))
+    r = cursor.fetchone()
+
+    if not r:
+        conn.close()
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
+
+    f_inicio_str = r[7]
+    f_fin_str = r[8]
+
+    try:
+        dt_actual = datetime.strptime(f_inicio_str, '%Y-%m-%d').replace(day=1)
+        dt_final = datetime.strptime(f_fin_str, '%Y-%m-%d').replace(day=1)
+    except:
+        dt_actual = datetime(2026, 10, 1)
+        dt_final = datetime(2027, 5, 1)
+
+    meses_disponibles = []
+    while dt_actual <= dt_final:
+        mes_en = dt_actual.strftime('%B')
+        mes_es = MESES_ESP.get(mes_en, mes_en).capitalize()
+        anio = dt_actual.strftime('%Y')
+        meses_disponibles.append(f'{mes_es} {anio}')
+        if dt_actual.month == 12:
+            dt_actual = dt_actual.replace(year=dt_actual.year + 1, month=1)
+        else:
+            dt_actual = dt_actual.replace(month=dt_actual.month + 1)
+
+    cursor.execute(
+        'SELECT id, mes_anio, nombre_archivo FROM reportes_mensuales WHERE alumno_co = ?',
+        (co,),
+    )
+    reportes_subidos = cursor.fetchall()
+    conn.close()
+
+    return render_template(
+        'gestionar_reportes.html',
+        alumno=r,
+        meses_disponibles=meses_disponibles,
+        reportes_subidos=reportes_subidos,
+    )
+
+
+@app.route('/subir_reporte_mes/<int:co>', methods=['POST'])
+def subir_reporte_mes(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    mes_anio = request.form.get('mes_anio')
+    file = request.files.get('archivo_reporte')
+
+    if file and file.filename != '' and mes_anio:
+        filename = secure_filename(
+            f'alumno_{co}_reporte_{mes_anio.replace(" ", "_")}_{file.filename}'
+        )
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+        conn = sqlite3.connect('datos.db')
+        cursor = conn.cursor()
+        cursor.execute(
+            'DELETE FROM reportes_mensuales WHERE alumno_co = ? AND mes_anio = ?',
+            (co, mes_anio),
+        )
+        cursor.execute(
+            'INSERT INTO reportes_mensuales (alumno_co, mes_anio, nombre_archivo) VALUES (?, ?, ?)',
+            (co, mes_anio, filename),
+        )
+        conn.commit()
+        conn.close()
+        flash(f'Reporte mensual de {mes_anio} subido correctamente.')
+
+    return redirect(url_for('gestionar_reportes', co=co))
+
+
+@app.route('/eliminar_reporte_mes/<int:reporte_id>/<int:co>')
+def eliminar_reporte_mes(reporte_id, co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT nombre_archivo FROM reportes_mensuales WHERE id = ?',
+        (reporte_id,),
+    )
+    row = cursor.fetchone()
+    if row:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], row[0])
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        cursor.execute(
+            'DELETE FROM reportes_mensuales WHERE id = ?', (reporte_id,)
+        )
+        conn.commit()
+    conn.close()
+    flash('Reporte mensual eliminado.')
+    return redirect(url_for('gestionar_reportes', co=co))
+
+
+# ==========================================
+# VENTANA 2: GESTIÓN DE RECIBOS DE PAGO DEL ALUMNO
+# ==========================================
+@app.route('/gestionar_recibos_alumno/<int:co>', methods=['GET'])
+def gestionar_recibos_alumno(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros WHERE co = ?', (co,))
+    r = cursor.fetchone()
+
+    if not r:
+        conn.close()
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
+
+    f_inicio_str = r[7]
+    f_fin_str = r[8]
+
+    try:
+        dt_actual = datetime.strptime(f_inicio_str, '%Y-%m-%d').replace(day=1)
+        dt_final = datetime.strptime(f_fin_str, '%Y-%m-%d').replace(day=1)
+    except:
+        dt_actual = datetime(2026, 10, 1)
+        dt_final = datetime(2027, 5, 1)
+
+    meses_disponibles = []
+    while dt_actual <= dt_final:
+        mes_en = dt_actual.strftime('%B')
+        mes_es = MESES_ESP.get(mes_en, mes_en).capitalize()
+        anio = dt_actual.strftime('%Y')
+        meses_disponibles.append(f'{mes_es} {anio}')
+        if dt_actual.month == 12:
+            dt_actual = dt_actual.replace(year=dt_actual.year + 1, month=1)
+        else:
+            dt_actual = dt_actual.replace(month=dt_actual.month + 1)
+
+    cursor.execute(
+        'SELECT id, mes_anio, nombre_archivo FROM recibos_alumno_mensuales WHERE alumno_co = ?',
+        (co,),
+    )
+    recibos_subidos = cursor.fetchall()
+    conn.close()
+
+    return render_template(
+        'gestionar_recibos_alumno.html',
+        alumno=r,
+        meses_disponibles=meses_disponibles,
+        recibos_subidos=recibos_subidos,
+    )
+
+
+@app.route('/subir_recibo_alumno_mes/<int:co>', methods=['POST'])
+def subir_recibo_alumno_mes(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    mes_anio = request.form.get('mes_anio')
+    file = request.files.get('archivo_recibo_alumno')
+
+    if file and file.filename != '' and mes_anio:
+        filename = secure_filename(
+            f'alumno_{co}_reciboalumno_{mes_anio.replace(" ", "_")}_{file.filename}'
+        )
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+        conn = sqlite3.connect('datos.db')
+        cursor = conn.cursor()
+        cursor.execute(
+            'DELETE FROM recibos_alumno_mensuales WHERE alumno_co = ? AND mes_anio = ?',
+            (co, mes_anio),
+        )
+        cursor.execute(
+            'INSERT INTO recibos_alumno_mensuales (alumno_co, mes_anio, nombre_archivo) VALUES (?, ?, ?)',
+            (co, mes_anio, filename),
+        )
+        conn.commit()
+        conn.close()
+        flash(f'Recibo de pago del alumno de {mes_anio} subido correctamente.')
+
+    return redirect(url_for('gestionar_recibos_alumno', co=co))
+
+
+@app.route('/eliminar_recibo_alumno_mes/<int:reporte_id>/<int:co>')
+def eliminar_recibo_alumno_mes(reporte_id, co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT nombre_archivo FROM recibos_alumno_mensuales WHERE id = ?',
+        (reporte_id,),
+    )
+    row = cursor.fetchone()
+    if row:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], row[0])
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        cursor.execute(
+            'DELETE FROM recibos_alumno_mensuales WHERE id = ?', (reporte_id,)
+        )
+        conn.commit()
+    conn.close()
+    flash('Recibo de pago del alumno eliminado.')
+    return redirect(url_for('gestionar_recibos_alumno', co=co))
+
+
+# ==========================================
+# VENTANA 3: GESTIÓN DE OFICIOS DE PAGO (EMPRESA)
+# ==========================================
+@app.route('/gestionar_recibos_pago/<int:co>', methods=['GET'])
+def gestionar_recibos_pago(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM registros WHERE co = ?', (co,))
+    r = cursor.fetchone()
+
+    if not r:
+        conn.close()
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
+
+    f_inicio_str = r[7]
+    f_fin_str = r[8]
+
+    try:
+        dt_actual = datetime.strptime(f_inicio_str, '%Y-%m-%d').replace(day=1)
+        dt_final = datetime.strptime(f_fin_str, '%Y-%m-%d').replace(day=1)
+    except:
+        dt_actual = datetime(2026, 10, 1)
+        dt_final = datetime(2027, 5, 1)
+
+    meses_disponibles = []
+    while dt_actual <= dt_final:
+        mes_en = dt_actual.strftime('%B')
+        mes_es = MESES_ESP.get(mes_en, mes_en).capitalize()
+        anio = dt_actual.strftime('%Y')
+        meses_disponibles.append(f'{mes_es} {anio}')
+        if dt_actual.month == 12:
+            dt_actual = dt_actual.replace(year=dt_actual.year + 1, month=1)
+        else:
+            dt_actual = dt_actual.replace(month=dt_actual.month + 1)
+
+    cursor.execute(
+        'SELECT id, mes_anio, nombre_archivo FROM recibos_pago_mensuales WHERE alumno_co = ?',
+        (co,),
+    )
+    recibos_subidos = cursor.fetchall()
+    conn.close()
+
+    return render_template(
+        'gestionar_recibos_pago.html',
+        alumno=r,
+        meses_disponibles=meses_disponibles,
+        recibos_subidos=recibos_subidos,
+    )
+
+
+@app.route('/subir_recibo_pago_mes/<int:co>', methods=['POST'])
+def subir_recibo_pago_mes(co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    mes_anio = request.form.get('mes_anio')
+    file = request.files.get('archivo_recibo')
+
+    if file and file.filename != '' and mes_anio:
+        filename = secure_filename(
+            f'alumno_{co}_oficiopago_{mes_anio.replace(" ", "_")}_{file.filename}'
+        )
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+
+        conn = sqlite3.connect('datos.db')
+        cursor = conn.cursor()
+        cursor.execute(
+            'DELETE FROM recibos_pago_mensuales WHERE alumno_co = ? AND mes_anio = ?',
+            (co, mes_anio),
+        )
+        cursor.execute(
+            'INSERT INTO recibos_pago_mensuales (alumno_co, mes_anio, nombre_archivo) VALUES (?, ?, ?)',
+            (co, mes_anio, filename),
+        )
+        conn.commit()
+        conn.close()
+        flash(f'Oficio de pago de la empresa de {mes_anio} subido correctamente.')
+
+    return redirect(url_for('gestionar_recibos_pago', co=co))
+
+
+@app.route('/eliminar_recibo_pago_mes/<int:reporte_id>/<int:co>')
+def eliminar_recibo_pago_mes(reporte_id, co):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    conn = sqlite3.connect('datos.db')
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT nombre_archivo FROM recibos_pago_mensuales WHERE id = ?',
+        (reporte_id,),
+    )
+    row = cursor.fetchone()
+    if row:
+        filepath = os.path.join(app.config['UPLOAD_FOLDER'], row[0])
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        cursor.execute(
+            'DELETE FROM recibos_pago_mensuales WHERE id = ?', (reporte_id,)
+        )
+        conn.commit()
+    conn.close()
+    flash('Oficio de pago eliminado.')
+    return redirect(url_for('gestionar_recibos_pago', co=co))
+
+
+if __name__ == '__main__':
+    init_db()
+    app.run(debug=True)
+    

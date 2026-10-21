@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestionar Recibos de Pago - CFE Norma 15</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <div class="card shadow">
+            <div class="card-header bg-success text-white">
+                <h4>Gestionar Recibos de Pago por Mes</h4>
+            </div>
+            <div class="card-body">
+                <h5>Alumno: <strong>{{ alumno[2] }}</strong></h5>
+                <p class="text-muted">Periodo: {{ alumno[7] }} al {{ alumno[8] }}</p>
+                <hr>
+
+                <!-- Formulario para subir recibo de pago -->
+                <form action="{{ url_for('subir_recibo_pago_mes', co=alumno[0]) }}" method="POST" enctype="multipart/form-data" class="row g-3 mb-4">
+                    <div class="col-md-5">
+                        <label for="mes_anio" class="form-label">Seleccionar Mes y Año:</label>
+                        <select name="mes_anio" id="mes_anio" class="form-select" required>
+                            <option value="">-- Elige un mes --</option>
+                            {% for mes in meses_disponibles %}
+                                <option value="{{ mes }}">{{ mes }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label for="archivo_recibo" class="form-label">Archivo de Recibo de Pago (PDF / Imagen):</label>
+                        <input type="file" name="archivo_recibo" id="archivo_recibo" class="form-control" required>
+                    </div>
+                    <div class="col-md-2 d-flex align-items-end">
+                        <button type="submit" class="btn btn-primary w-100">Subir Recibo</button>
+                    </div>
+                </form>
+
+                <h5 class="mt-4">Recibos de Pago Subidos:</h5>
+                <table class="table table-striped table-bordered mt-2">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Mes / Año</th>
+                            <th>Nombre del Archivo</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if recibos_subidos %}
+                            {% for rec in recibos_subidos %}
+                                <tr>
+                                    <td>{{ rec[1] }}</td>
+                                    <td>
+                                        <a href="{{ url_for('static', filename='uploads_alumnos/' ~ rec[2]) }}" target="_blank">
+                                            {{ rec[2] }}
+                                        </a>
+                                    </td>
+                                    <td>
+                                        <a href="{{ url_for('eliminar_recibo_pago_mes', reporte_id=rec[0], co=alumno[0]) }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este recibo de pago?');">Eliminar</a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="3" class="text-center text-muted">No hay recibos de pago subidos aún.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+
+                <div class="mt-4">
+                    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Regresar al Dashboard</a>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

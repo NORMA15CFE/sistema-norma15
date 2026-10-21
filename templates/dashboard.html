@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard - CFE Norma 15</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f4; font-family: Arial, sans-serif; }
+        .navbar-cfe { background-color: #006633; color: white; }
+        .btn-cfe { background-color: #006633; color: white; font-weight: bold; }
+        .btn-cfe:hover { background-color: #004d26; color: white; }
+        .table-container { background: white; padding: 20px; border-radius: 8px; box-shadow: 0px 2px 8px rgba(0,0,0,0.05); }
+        .alumno-link { color: #006633; font-weight: bold; text-decoration: none; cursor: pointer; }
+        .alumno-link:hover { text-decoration: underline; color: #004d26; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg navbar-cfe px-4 py-3">
+        <div class="container-fluid align-items-center">
+            <a class="navbar-brand text-white fw-bold m-0" href="#">
+                <img src="{{ url_for('static', filename='logo_cfe.jpg') }}" alt="Logo" width="35" height="35" class="d-inline-block align-text-top me-2" onerror="this.style.display='none'">
+                CFE - Norma 15 | Zona: {{ usuario }} (Rol: {{ rol.upper() }})
+            </a>
+            <div class="d-flex">
+                <a href="/logout" class="btn btn-outline-light btn-sm">Cerrar Sesión</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+              {{ messages[0] }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <!-- CABECERA CON BÚHO Y BOTONES SUPERIORES -->
+        <div class="row align-items-center mb-4 bg-white p-3 rounded shadow-sm">
+            <div class="col-md-2 text-center">
+                <img src="{{ url_for('static', filename='buhonombres.png') }}" alt="Búho CFE Nombres" style="max-height: 100px;" class="img-fluid">
+            </div>
+            <div class="col-md-4">
+                <h3 class="fw-bold text-dark m-0">Listado de Estudiantes Registrados</h3>
+                <p class="text-muted m-0 small">Control y gestión de personal en formación</p>
+            </div>
+            <div class="col-md-6 text-end">
+                <div class="d-flex justify-content-end align-items-center gap-2 flex-wrap">
+                    <a href="/registrar" class="btn btn-cfe btn-sm"><i class="fas fa-user-plus me-1"></i> Registrar Alumno</a>
+                    {% if rol == 'admin' %}
+                        <a href="/descargar_excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel me-1"></i> Excel Oficial</a>
+                        <a href="{{ url_for('descargar_excel_todos') }}" class="btn btn-dark btn-sm"><i class="fas fa-file-excel me-1"></i> Historial</a>
+                    {% else %}
+                        <a href="/descargar_excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel me-1"></i> Excel Oficial</a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- BARRA UNIFICADA: FILTRO DE ZONA, LUPA DE BÚSQUEDA Y OFICIOS -->
+        <div class="card mb-3 p-3 bg-white shadow-sm">
+            <div class="row align-items-center justify-content-between g-2">
+                <div class="col-md-4">
+                    {% if rol == 'admin' %}
+                    <form method="GET" action="/dashboard" class="row g-2 align-items-center m-0">
+                        <div class="col-auto ps-0">
+                            <label class="fw-semibold small">Zona:</label>
+                        </div>
+                        <div class="col">
+                            <select name="zona_filtro" class="form-select form-select-sm">
+                                <option value="TODOS">TODAS LAS ZONAS</option>
+                                {% for sec in secciones_disponibles %}
+                                    {% if sec.nombre != 'Oficinas Divisionales' %}
+                                        <option value="{{ sec.nombre }}" {% if zona_filtro == sec.nombre %}selected{% endif %}>{{ sec.nombre }}</option>
+                                    {% endif %}
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="col-auto">
+                            <button type="submit" class="btn btn-secondary btn-sm">Filtrar</button>
+                        </div>
+                    </form>
+                    {% else %}
+                    <span class="fw-bold text-success"><i class="fas fa-map-marker-alt me-1"></i> Zona actual: {{ usuario }}</span>
+                    {% endif %}
+                </div>
+
+                <!-- LUPA DE BÚSQUEDA POR NOMBRE EN EL ESPACIO SEÑALADO -->
+                <div class="col-md-4">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white text-success"><i class="fas fa-search"></i></span>
+                        <input type="text" id="buscadorAlumnos" class="form-control" placeholder="Buscar alumno por nombre..." onkeyup="filtrarTabla()">
+                    </div>
+                </div>
+                
+                <div class="col-md-4 text-end">
+                    <a href="{{ url_for('gestionar_oficios_zona') }}" class="btn btn-success fw-bold btn-sm">
+                        <i class="fas fa-folder-open me-1"></i> Gestionar Oficios de Pago (Zona)
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- TABLA DE ESTUDIANTES -->
+        <div class="table-container table-responsive">
+            <table class="table table-hover align-middle" id="tablaAlumnos">
+                <thead class="table-dark" style="background-color: #006633;">
+                    <tr>
+                        <th>CO</th>
+                        <th>Zona</th>
+                        <th>Nombre del Alumno (Gestión)</th>
+                        <th>Tipo Apoyo</th>
+                        <th>Área</th>
+                        <th>Institución</th>
+                        <th>Carrera</th>
+                        <th>Estatus</th>
+                        <th>Remuneración</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for r in registros %}
+                    <tr>
+                        <td><strong>{{ r[0] }}</strong></td>
+                        <td>{{ r[1] }}</td>
+                        <td class="nombre-alumno">
+                            <a class="alumno-link" data-bs-toggle="modal" data-bs-target="#modalAcciones{{ r[0] }}" title="Hacer clic para gestionar alumno">
+                                <i class="fas fa-user-graduate me-1"></i> {{ r[2] }}
+                            </a>
+                        </td>
+                        <td>{{ r[3] }}</td>
+                        <td>{{ r[4] }}</td>
+                        <td>{{ r[5] }}</td>
+                        <td>{{ r[6] }}</td>
+                        <td>
+                            <span class="badge {% if r[9] == 'Activo' %}bg-success{% elif r[9] == 'Baja obligada' %}bg-danger{% else %}bg-secondary{% endif %}" {% if r[9] == 'Baja obligada' and r[26] %}title="Motivo: {{ r[26] }}"{% endif %}>
+                                {{ r[9] }}
+                            </span>
+                        </td>
+                        <td>{{ r[14] }}</td>
+                    </tr>
+
+                    <!-- Modales de cada alumno (Acciones, Baja, Archivos, Ver Archivos) se mantienen exactamente igual... -->
+                    <!-- Modal Principal de Gestión del Alumno -->
+                    <div class="modal fade" id="modalAcciones{{ r[0] }}" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header bg-success text-white">
+                                    <h5 class="modal-title">Gestión de Alumno: {{ r[2] }} (CO: {{ r[0] }})</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body text-center py-4">
+                                    <p class="text-muted mb-4">Selecciona la acción que deseas realizar:</p>
+                                    <div class="d-grid gap-3 col-9 mx-auto">
+                                        <a href="/editar/{{ r[0] }}" class="btn btn-outline-primary py-2 fw-semibold">
+                                            <i class="fas fa-edit me-2"></i> Editar datos del alumno
+                                        </a>
+                                        <button class="btn btn-outline-success py-2 fw-semibold" data-bs-toggle="modal" data-bs-target="#modalArchivos{{ r[0] }}" data-bs-dismiss="modal">
+                                            <i class="fas fa-folder-open me-2"></i> Cargar archivos
+                                        </button>
+                                        <button class="btn btn-outline-info py-2 fw-semibold text-dark" data-bs-toggle="modal" data-bs-target="#modalVerArchivos{{ r[0] }}" data-bs-dismiss="modal">
+                                            <i class="fas fa-eye me-2 text-info"></i> Ver archivos cargados
+                                        </button>
+                                        {% if 'Título gratuito' in r[14] or r[11] == 'No' %}
+                                            <a href="/generar_convenio_gratuito/{{ r[0] }}" class="btn btn-outline-secondary py-2 fw-semibold">
+                                                <i class="fas fa-file-word me-2 text-primary"></i> Convenio a Título Gratuito
+                                            </a>
+                                        {% else %}
+                                            <a href="/seleccionar_mes_orden/{{ r[0] }}" class="btn btn-outline-warning py-2 fw-semibold text-dark">
+                                                <i class="fas fa-file-invoice-dollar me-2 text-warning"></i> Generar orden de pago
+                                            </a>
+                                        {% endif %}
+                                        <button class="btn btn-outline-danger py-2 fw-semibold" data-bs-toggle="modal" data-bs-target="#modalBaja{{ r[0] }}" data-bs-dismiss="modal">
+                                            <i class="fas fa-user-slash me-2"></i> Dar de baja alumno
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cerrar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal para el Motivo de la Baja Obligada -->
+                    <div class="modal fade" id="modalBaja{{ r[0] }}" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <form action="/dar_de_baja/{{ r[0] }}" method="POST">
+                                    <div class="modal-header bg-danger text-white">
+                                        <h5 class="modal-title">Dar de baja al alumno: {{ r[2] }}</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body">
+                                        <p class="text-muted">Estás a punto de registrar una <strong>Baja obligada</strong>. Por favor, indica el motivo:</p>
+                                        <div class="mb-3">
+                                            <label class="form-label fw-semibold">Motivo de la baja:</label>
+                                            <textarea class="form-control" name="motivo_baja" rows="3" placeholder="Escribe detalladamente el motivo..." required></textarea>
+                                        </div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#modalAcciones{{ r[0] }}" data-bs-dismiss="modal">Volver</button>
+                                        <button type="submit" class="btn btn-danger btn-sm">Confirmar Baja Obligada</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal para Cargar Archivos -->
+                    <div class="modal fade" id="modalArchivos{{ r[0] }}" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <form action="/subir_archivos/{{ r[0] }}" method="POST" enctype="multipart/form-data">
+                                    <div class="modal-header bg-success text-white">
+                                        <h5 class="modal-title">Cargar Archivos - {{ r[2] }}</h5>
+                                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                    </div>
+                                    <div class="modal-body small">
+                                        <p class="text-muted">Sube documentos requeridos:</p>
+                                        <div class="mb-2"><label class="fw-bold">Carta de presentación:</label><input type="file" class="form-control form-control-sm" name="carta_presentacion"></div>
+                                        <div class="mb-2"><label class="fw-bold">Carta de aceptación:</label><input type="file" class="form-control form-control-sm" name="carta_aceptacion"></div>
+                                        <div class="mb-2"><label class="fw-bold">Constancia de calificaciones:</label><input type="file" class="form-control form-control-sm" name="constancia"></div>
+                                        <div class="mb-2"><label class="fw-bold">Carta de buena conducta:</label><input type="file" class="form-control form-control-sm" name="buena_conducta"></div>
+                                        <div class="mb-2"><label class="fw-bold text-success">INE del alumno:</label><input type="file" class="form-control form-control-sm" name="ine"></div>
+                                        <div class="mb-2"><label class="fw-bold text-success">Acta de Nacimiento:</label><input type="file" class="form-control form-control-sm" name="acta_nacimiento"></div>
+                                        <div class="mb-2"><label class="fw-bold text-success">Constancia de Vigencia IMSS:</label><input type="file" class="form-control form-control-sm" name="vigencia_imss"></div>
+                                        <div class="p-3 bg-light border rounded mb-2">
+                                            <label class="fw-bold text-success mb-1">CLABE Interbancaria:</label>
+                                            <div class="mb-2"><input type="text" class="form-control form-control-sm" name="banco_clabe" placeholder="Banco (Ej. BBVA, Santander)" value="{{ r[15] or '' }}"></div>
+                                            <div class="mb-2"><input type="text" class="form-control form-control-sm" name="numero_clabe" placeholder="18 dígitos" maxlength="18" value="{{ r[16] or '' }}"></div>
+                                            <div><label class="form-label text-muted small mb-0">Comprobante de CLABE:</label><input type="file" class="form-control form-control-sm border-success" name="clabe"></div>
+                                        </div>
+                                        <div class="mb-2"><label class="fw-bold">Contrato de título gratuito:</label><input type="file" class="form-control form-control-sm" name="contrato"></div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#modalAcciones{{ r[0] }}">Volver</button>
+                                        <button type="submit" class="btn btn-success btn-sm">Guardar Archivos</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal para Ver / Eliminar Archivos Cargados -->
+                    <div class="modal fade" id="modalVerArchivos{{ r[0] }}" tabindex="-1" aria-hidden="true">
+                        <div class="modal-dialog">
+                            <div class="modal-content">
+                                <div class="modal-header bg-info text-dark">
+                                    <h5 class="modal-title">Archivos de: {{ r[2] }}</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body small">
+                                    <ul class="list-group mb-3">
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Carta Presentación:</strong> {% if r[17] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[17]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[17] %}<a href="/eliminar_archivo/{{ r[0] }}/carta_presentacion" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Carta Aceptación:</strong> {% if r[18] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[18]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[18] %}<a href="/eliminar_archivo/{{ r[0] }}/carta_aceptacion" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Constancia Calificaciones:</strong> {% if r[19] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[19]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[19] %}<a href="/eliminar_archivo/{{ r[0] }}/constancia" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Buena Conducta:</strong> {% if r[20] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[20]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[20] %}<a href="/eliminar_archivo/{{ r[0] }}/buena_conducta" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>INE:</strong> {% if r[21] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[21]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[21] %}<a href="/eliminar_archivo/{{ r[0] }}/ine" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Acta Nacimiento:</strong> {% if r[27] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[27]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[27] %}<a href="/eliminar_archivo/{{ r[0] }}/acta_nacimiento" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Vigencia IMSS:</strong> {% if r[28] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[28]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[28] %}<a href="/eliminar_archivo/{{ r[0] }}/vigencia_imss" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>CLABE Interbancaria:</strong> {% if r[24] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[24]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %} <br><small class="text-muted">Banco: {{ r[15] or 'N/A' }} | CLABE: {{ r[16] or 'N/A' }}</small></span>
+                                            {% if r[24] or r[16] %}<a href="/eliminar_archivo/{{ r[0] }}/clabe" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Contrato:</strong> {% if r[25] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[25]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[25] %}<a href="/eliminar_archivo/{{ r[0] }}/contrato" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                    </ul>
+
+                                    <h6 class="text-success fw-bold mt-3 mb-2">Gestiones Mensuales:</h6>
+                                    <ul class="list-group">
+                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>1. Reporte Mensual:</strong> <a href="/gestionar_reportes/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></span></li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>2. Recibo Alumno:</strong> <a href="/gestionar_recibos_alumno/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></span></li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>3. Oficio Empresa:</strong> <a href="/gestionar_recibos_pago/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></span></li>
+                                    </ul>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#modalAcciones{{ r[0] }}">Volver</button>
+                                    <button type="button" class="btn btn-dark btn-sm" data-bs-dismiss="modal">Cerrar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <tr>
+                        <td colspan="9" class="text-center text-muted py-4">No hay registros de estudiantes disponibles.</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- SCRIPT DE FILTRADO EN TIEMPO REAL CON LA LUPA -->
+    <script>
+        function filtrarTabla() {
+            let input = document.getElementById("buscadorAlumnos");
+            let filtro = input.value.toLowerCase();
+            let tabla = document.getElementById("tablaAlumnos");
+            let filas = tabla.getElementsByTagName("tr");
+
+            for (let i = 1; i < filas.length; i++) {
+                let celdaNombre = filas[i].getElementsByClassName("nombre-alumno")[0];
+                if (celdaNombre) {
+                    let textoValue = celdaNombre.textContent || celdaNombre.innerText;
+                    if (textoValue.toLowerCase().indexOf(filtro) > -1) {
+                        filas[i].style.display = "";
+                    } else {
+                        filas[i].style.display = "none";
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

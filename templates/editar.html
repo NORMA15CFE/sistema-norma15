@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Editar Alumno - CFE Norma 15</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f4; font-family: Arial, sans-serif; }
+        .navbar-cfe { background-color: #006633; color: white; }
+        .btn-cfe { background-color: #006633; color: white; font-weight: bold; }
+        .btn-cfe:hover { background-color: #004d26; color: white; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-cfe px-4 py-3">
+        <div class="container-fluid">
+            <a class="navbar-brand text-white fw-bold" href="/dashboard">
+                <i class="fas fa-arrow-left me-2"></i> Volver al Dashboard
+            </a>
+        </div>
+    </nav>
+
+    <div class="container mt-4 mb-5">
+        <div class="card shadow-sm p-4 mx-auto" style="max-width: 700px;">
+            <h3 class="text-success fw-bold mb-4 text-center">Editar Alumno: {{ alumno[2] }}</h3>
+            
+            <form action="/editar/{{ alumno[0] }}" method="POST">
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Nombre Completo del Alumno:</label>
+                    <input type="text" class="form-control" name="nombre_alumno" value="{{ alumno[2] }}" required>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Tipo de Apoyo:</label>
+                    <select class="form-select" name="tipo_apoyo" required>
+                        <option value="Servicio Social" {% if alumno[3] == 'Servicio Social' %}selected{% endif %}>Servicio Social</option>
+                        <option value="Prácticas Profesionales" {% if alumno[3] == 'Prácticas Profesionales' %}selected{% endif %}>Prácticas Profesionales</option>
+                        <option value="Residencias Profesionales" {% if alumno[3] == 'Residencias Profesionales' %}selected{% endif %}>Residencias Profesionales</option>
+                         <option value="Estadías Profesionales" {% if alumno[3] == 'Estadías Profesionales' %}selected{% endif %}>Estadías Profesionales</option>
+                    </select>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label fw-semibold">Área:</label>
+                    <input type="text" class="form-control" name="area" value="{{ alumno[4] }}" required>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-semibold">Institución Educativa:</label>
+                        <input type="text" class="form-control" name="institucion" value="{{ alumno[5] }}" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-semibold">Carrera:</label>
+                        <input type="text" class="form-control" name="carrera" value="{{ alumno[6] }}" required>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-semibold">Fecha de Inicio:</label>
+                        <input type="date" class="form-control" name="fecha_inicio" value="{{ alumno[7] }}" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-semibold">Fecha de Fin:</label>
+                        <input type="date" class="form-control" name="fecha_fin" value="{{ alumno[8] }}" required>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-semibold">Total de Horas:</label>
+                        <input type="number" class="form-control" name="horas" value="{{ alumno[10] }}" required>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label fw-semibold">Subvención:</label>
+                        <select class="form-select" name="es_familiar" id="es_familiar" required>
+                            <option value="No" {% if alumno[11] == 'No' or not alumno[11] %}selected{% endif %}>No</option>
+                            <option value="Sí" {% if alumno[11] == 'Sí' %}selected{% endif %}>Sí</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Sección dinámica: Datos del familiar arriba y monto hasta abajo -->
+                <div id="seccionSubvencion" class="p-3 bg-light border rounded mb-3" style="display: none;">
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Nombre del Familiar Trabajador:</label>
+                        <input type="text" class="form-control" name="nombre_familiar" value="{{ alumno[12] or '' }}" placeholder="Nombre completo del familiar">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Parentesco:</label>
+                        <input type="text" class="form-control" name="parentesco_familiar" value="{{ alumno[13] or '' }}" placeholder="Ej. Padre, Madre, Tío...">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold text-success">Monto del Apoyo Económico ($ Pesos):</label>
+                        <div class="input-group">
+                            <span class="input-group-text">$</span>
+                            <input type="text" class="form-control" name="monto_apoyo" value="2,580.86" placeholder="Ej. 2,580.86">
+                            <span class="input-group-text">pesos</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-grid mt-4">
+                    <button type="submit" class="btn btn-cfe py-2">Guardar Cambios</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const selectFamiliar = document.getElementById('es_familiar');
+            const seccionSubvencion = document.getElementById('seccionSubvencion');
+
+            function verificarSubvencion() {
+                if (selectFamiliar.value === 'Sí') {
+                    seccionSubvencion.style.display = 'block';
+                } else {
+                    seccionSubvencion.style.display = 'none';
+                }
+            }
+
+            selectFamiliar.addEventListener('change', verificarSubvencion);
+            verificarSubvencion();
+        });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
