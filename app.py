@@ -17,7 +17,7 @@ from flask import (
 
 import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+from openpyxl.cell.cell import MergedCell
 
 import sqlite3
 from werkzeug.utils import secure_filename
@@ -1006,6 +1006,14 @@ def descargar_excel():
             for c_offset, val in enumerate(valores_fila):
                 col_num = 3 + c_offset
                 cell = ws.cell(row=row_idx, column=col_num)
+                
+                # Manejo de celdas combinadas para evitar el error de lectura
+                if isinstance(cell, MergedCell):
+                    for range_merged in ws.merged_cells.ranges:
+                        if cell.coordinate in range_merged:
+                            cell = ws.cell(row=range_merged.min_row, column=range_merged.min_col)
+                            break
+
                 cell.value = val
                 cell.font = Font(name='Arial', size=9, color='000000')
                 cell.border = thin_border
@@ -1078,6 +1086,13 @@ def descargar_excel_todos():
             for c_offset, val in enumerate(valores_fila):
                 col_num = 1 + c_offset
                 cell = ws.cell(row=row_idx, column=col_num)
+                
+                if isinstance(cell, MergedCell):
+                    for range_merged in ws.merged_cells.ranges:
+                        if cell.coordinate in range_merged:
+                            cell = ws.cell(row=range_merged.min_row, column=range_merged.min_col)
+                            break
+
                 cell.value = val
                 cell.font = Font(name='Arial', size=9, color='000000')
                 cell.border = thin_border
