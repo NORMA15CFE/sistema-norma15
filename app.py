@@ -14,9 +14,16 @@ from flask import (
     session,
     url_for,
 )
-import pythoncom
+
+# Protección para librerías de Windows (en Linux/Render se vuelven None sin romper la app)
+try:
+    import pythoncom
+    import win32com.client
+except ImportError:
+    pythoncom = None
+    win32com.client = None
+
 import sqlite3
-import win32com.client
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -948,6 +955,10 @@ def descargar_excel():
     if 'usuario' not in session:
         return redirect(url_for('login'))
 
+    if pythoncom is None or win32com.client is None:
+        flash('La generación automática de Excel por COM no está disponible en este servidor Linux.')
+        return redirect(url_for('dashboard'))
+
     conn = sqlite3.connect('datos.db')
     cursor = conn.cursor()
     cursor.execute('SELECT * FROM registros ORDER BY seccion ASC, co ASC')
@@ -1051,6 +1062,10 @@ def descargar_excel():
 def descargar_excel_todos():
     if 'usuario' not in session:
         return redirect(url_for('login'))
+
+    if pythoncom is None or win32com.client is None:
+        flash('La generación automática de Excel por COM no está disponible en este servidor Linux.')
+        return redirect(url_for('dashboard'))
 
     conn = sqlite3.connect('datos.db')
     cursor = conn.cursor()
