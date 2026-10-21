@@ -169,6 +169,12 @@ def hacer_login():
         return redirect(url_for('login'))
 
 
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
 @app.route('/dashboard')
 def dashboard():
     if 'usuario' not in session:
@@ -956,7 +962,7 @@ def eliminar_oficio_zona(zona, nombre_archivo):
 
 
 # ==========================================
-# GENERADOR DEL EXCEL NORMA 15 (MÁXIMO 20 ALUMNOS POR HOJA, CONSECUCURIVO REAL CO)
+# GENERADOR DEL EXCEL NORMA 15 (MÁXIMO 20 ALUMNOS POR HOJA, CONSECUTIVO REAL CO)
 # ==========================================
 FILA_INICIO = 15          # primera fila de datos en la plantilla
 FILAS_BASE = 20           # filas con borde que trae la plantilla (15 a 34 -> exactamente 20 alumnos)
