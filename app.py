@@ -956,14 +956,13 @@ def eliminar_oficio_zona(zona, nombre_archivo):
 
 
 # ==========================================
-# GENERADOR DEL EXCEL NORMA 15 (CLONA LA PLANTILLA A NIVEL XML:
-# conserva logos, sello, comentarios, anchos, estilos y firmas)
+# GENERADOR DEL EXCEL NORMA 15 (COLUMNAS DESDE C EXACTAS Y FIRMAS FIJAS)
 # ==========================================
 FILA_INICIO = 15          # primera fila de datos en la plantilla
 FILAS_BASE = 20           # filas con borde que trae la plantilla (15 a 34)
 ESTILO_DATOS = 9          # estilo de celda de datos de la plantilla
-COL_INICIAL = 3           # columna C
-COLUMNAS = "CDEFGHIJKLMN"
+COL_INICIAL = 3           # Columna C (3)
+COLUMNAS = "CDEFGHIJKLMN" # C=No, D=AÑO, E=Mes, F=Coordinación, G=Centro, H=Tipo, I=Nombre, J=Inst, K=Carrera, L=Inicio, M=Fin, N=Monto
 
 NS_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
 REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -1022,16 +1021,22 @@ def _construir_hoja(sheet_tpl, filas_valores, primera_hoja):
 
     m = re.search(r"<sheetData>(.*)</sheetData>", sheet_tpl, re.S)
     filas = re.findall(r'<row\b[^>]*?(?:/>|>.*?</row>)', m.group(1), re.S)
-    por_num = {int(re.match(r'<row r="(\d+)"', f).group(1)): f for f in filas}
+    por_num = {}
+    for f in filas:
+        match_r = re.search(r'r="(\d+)"', f)
+        if match_r:
+            por_num[int(match_r.group(1))] = f
 
     salida = []
     for r in sorted(por_num):
         if r < FILA_INICIO:                      # encabezado: intacto
             salida.append(por_num[r])
-    # Filas de datos (las que sobran de la plantilla se rellenan vacías)
+            
+    # Filas de datos
     for i in range(total_filas):
         vals = filas_valores[i] if i < n else [None] * len(COLUMNAS)
         salida.append(_fila_datos(FILA_INICIO + i, vals))
+        
     # Pie de página, firmas, etc.: se recorren 'extra' filas
     for r in sorted(por_num):
         if r > ultima_fila_datos:
@@ -1039,7 +1044,6 @@ def _construir_hoja(sheet_tpl, filas_valores, primera_hoja):
 
     xml = sheet_tpl[: m.start(1)] + "".join(salida) + sheet_tpl[m.end(1):]
 
-    # Celdas combinadas del pie: se recorren igual que las filas
     if extra:
         def mover_merge(mm):
             def f(c):
@@ -1047,11 +1051,8 @@ def _construir_hoja(sheet_tpl, filas_valores, primera_hoja):
                 return f"{col}{row + extra if row > ultima_fila_datos else row}"
             return re.sub(r"([A-Z]+)(\d+)", f, mm.group(0))
         xml = re.sub(r'<mergeCell ref="[^"]+"', mover_merge, xml)
-        # dimensión de la hoja
         xml = re.sub(r'<dimension ref="C1:O(\d+)"',
                      lambda d: f'<dimension ref="C1:O{int(d.group(1)) + extra}"', xml)
-        xml = re.sub(r'<selection activeCell="C15" sqref="C15"/>',
-                     '<selection activeCell="C15" sqref="C15"/>', xml)
 
     if not primera_hoja:
         xml = xml.replace(' tabSelected="1"', "")
@@ -1059,23 +1060,16 @@ def _construir_hoja(sheet_tpl, filas_valores, primera_hoja):
 
 
 def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=None):
-    """
-    registros     : filas de la tabla `registros` (tuplas, mismo orden que en app.py)
-    plantilla_path: ruta a plantillareporte_norma15.xlsx
-    output_path   : dónde guardar el resultado
-    anio, mes_es  : opcionales (por defecto, fecha actual)
-    """
     meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
              "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
     hoy = datetime.now()
     anio = str(anio or hoy.year)
     mes_es = mes_es or meses[hoy.month - 1]
 
-    # --- agrupar por zona, respetando el orden en que vienen ---
     zonas = {}
     for r in registros:
         zonas.setdefault(r[1], []).append(r)
-    if not zonas:                                   # sin datos: una hoja vacía
+    if not zonas:
         zonas = {"Sin registros": []}
 
     zin = zipfile.ZipFile(plantilla_path)
@@ -1088,14 +1082,13 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
     comments_tpl = arch["xl/comments1.xml"]
     vml_tpl = arch["xl/drawings/vmlDrawing1.vml"].decode("utf-8")
 
-    # quitamos las partes de la hoja única; se regeneran una por zona
     for k in ["xl/worksheets/sheet1.xml", "xl/worksheets/_rels/sheet1.xml.rels",
               "xl/drawings/drawing1.xml", "xl/drawings/_rels/drawing1.xml.rels",
               "xl/comments1.xml", "xl/drawings/vmlDrawing1.vml"]:
-        arch.pop(k)
+        arch.pop(k, None)
 
     nombres_usados = set()
-    hojas_meta = []     # (nombre, indice)
+    hojas_meta = []
     for idx, (zona, regs) in enumerate(zonas.items(), start=1):
         nombre = _nombre_hoja(zona, nombres_usados)
         hojas_meta.append((nombre, idx))
@@ -1118,16 +1111,15 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
             f'<Relationship Id="rId1" Type="{REL_BASE}/drawing" Target="../drawings/drawing{idx}.xml"/>'
             '</Relationships>').encode("utf-8")
 
-        arch[f"xl/drawings/drawing{idx}.xml"] = drawing_tpl            # logos / sello
+        arch[f"xl/drawings/drawing{idx}.xml"] = drawing_tpl
         arch[f"xl/drawings/_rels/drawing{idx}.xml.rels"] = drawing_rels_tpl
-        arch[f"xl/comments{idx}.xml"] = comments_tpl                   # notas del encabezado
+        arch[f"xl/comments{idx}.xml"] = comments_tpl
 
         vml = re.sub(r'(idmap v:ext="edit" data=")\d+(")', rf'\g<1>{idx}\2', vml_tpl)
         vml = re.sub(r"_x0000_s(\d+)",
                      lambda m: f"_x0000_s{int(m.group(1)) + (idx - 1) * 1024}", vml)
         arch[f"xl/drawings/vmlDrawing{idx}.vml"] = vml.encode("utf-8")
 
-    # --- workbook.xml ---
     wb = arch["xl/workbook.xml"].decode("utf-8")
     sheets_xml = "<sheets>" + "".join(
         f'<sheet name="{escape(n, {chr(34): "&quot;"})}" sheetId="{i}" r:id="rIdS{i}"/>'
@@ -1135,7 +1127,6 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
     wb = re.sub(r"<sheets>.*?</sheets>", sheets_xml, wb, flags=re.S)
     arch["xl/workbook.xml"] = wb.encode("utf-8")
 
-    # --- workbook.xml.rels ---
     rels = arch["xl/_rels/workbook.xml.rels"].decode("utf-8")
     rels = re.sub(r'<Relationship Id="rId1"[^>]*worksheets/sheet1\.xml"/>', "", rels)
     nuevas = "".join(
@@ -1144,7 +1135,6 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
     rels = rels.replace("</Relationships>", nuevas + "</Relationships>")
     arch["xl/_rels/workbook.xml.rels"] = rels.encode("utf-8")
 
-    # --- [Content_Types].xml ---
     ct = arch["[Content_Types].xml"].decode("utf-8")
     for pat in [r'<Override PartName="/xl/worksheets/sheet1\.xml"[^>]*/>',
                 r'<Override PartName="/xl/drawings/drawing1\.xml"[^>]*/>',
@@ -1159,7 +1149,6 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
     ct = ct.replace("</Types>", extra_ct + "</Types>")
     arch["[Content_Types].xml"] = ct.encode("utf-8")
 
-    # --- docProps/app.xml (lista de hojas) ---
     app = arch["docProps/app.xml"].decode("utf-8")
     titulos = "".join(f"<vt:lpstr>{escape(n)}</vt:lpstr>" for n, _ in hojas_meta)
     app = re.sub(r"<vt:i4>\d+</vt:i4>", f"<vt:i4>{len(hojas_meta)}</vt:i4>", app, count=1)
@@ -1168,7 +1157,6 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
                  app, flags=re.S)
     arch["docProps/app.xml"] = app.encode("utf-8")
 
-    # --- escribir el .xlsx ([Content_Types].xml primero) ---
     orden = ["[Content_Types].xml"] + [k for k in arch if k != "[Content_Types].xml"]
     with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zout:
         for k in orden:
@@ -1177,7 +1165,7 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
 
 
 # ==========================================
-# DESCARGA DE EXCEL NORMA 15 (CLON EXACTO DE LA PLANTILLA: IMAGENES, FIRMAS Y FORMATO)
+# DESCARGA DE EXCEL NORMA 15
 # ==========================================
 @app.route('/descargar_excel')
 def descargar_excel():
@@ -1215,7 +1203,7 @@ def descargar_excel():
 
 
 # ==========================================
-# DESCARGA DE EXCEL TODOS / HISTORIAL (RESTAURADO)
+# DESCARGA DE EXCEL TODOS / HISTORIAL
 # ==========================================
 @app.route('/descargar_excel_todos')
 def descargar_excel_todos():
