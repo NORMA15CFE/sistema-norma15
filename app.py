@@ -15,15 +15,9 @@ from flask import (
     url_for,
 )
 
-# Protección robusta para librerías de Windows en Linux/Render
-try:
-    import pythoncom
-    import win32com.client
-    HAS_WIN32 = True
-except ImportError:
-    pythoncom = None
-    win32com = None
-    HAS_WIN32 = False
+import openpyxl
+from openpyxl.styles import Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 import sqlite3
 from werkzeug.utils import secure_filename
@@ -960,16 +954,12 @@ def eliminar_oficio_zona(zona, nombre_archivo):
 
 
 # ==========================================
-# DESCARGA DE EXCEL NORMA 15 (UNA SOLA HOJA CONSOLIDADA - ORDENADA POR ZONA)
+# DESCARGA DE EXCEL NORMA 15 (CON OPENPYXL - COMPATIBLE CON LINUX/RENDER)
 # ==========================================
 @app.route('/descargar_excel')
 def descargar_excel():
     if 'usuario' not in session:
         return redirect(url_for('login'))
-
-    if not HAS_WIN32:
-        flash('La generación automática de Excel por COM no está disponible en este servidor Linux.')
-        return redirect(url_for('dashboard'))
 
     conn = sqlite3.connect('datos.db')
     cursor = conn.cursor()
@@ -982,23 +972,23 @@ def descargar_excel():
     output_filename = 'Informe_Norma15_Consolidado.xlsx'
     output_path = os.path.join(base_dir, output_filename)
 
-    pythoncom.CoInitialize()
-
     try:
         if not os.path.exists(plantilla_excel):
             flash('Error: No se encontró la plantilla "plantillareporte_norma15.xlsx".')
-            pythoncom.CoUninitialize()
             return redirect(url_for('dashboard'))
 
-        excel = win32com.client.Dispatch('Excel.Application')
-        excel.Visible = False
-        excel.DisplayAlerts = False
-
-        wb = excel.Workbooks.Open(plantilla_excel)
-        ws = wb.Sheets(1)
+        wb = openpyxl.load_workbook(plantilla_excel)
+        ws = wb.active
 
         start_row = 15
         row_idx = start_row
+        thin_border = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
+
         for idx, r in enumerate(registros, start=1):
             try:
                 f_inicio_obj = datetime.strptime(r[7], '%Y-%m-%d')
@@ -1009,45 +999,28 @@ def descargar_excel():
                 anio = '2026'
                 mes = 'Actual'
 
-            ws.Cells(row_idx, 3).Value = idx
-            ws.Cells(row_idx, 4).Value = anio
-            ws.Cells(row_idx, 5).Value = mes
-            ws.Cells(row_idx, 6).Value = 'Distribución'
-            ws.Cells(row_idx, 7).Value = r[1]
-            ws.Cells(row_idx, 8).Value = r[3]
-            ws.Cells(row_idx, 9).Value = r[2]
-            ws.Cells(row_idx, 10).Value = r[5]
-            ws.Cells(row_idx, 11).Value = r[6]
-            ws.Cells(row_idx, 12).Value = r[7]
-            ws.Cells(row_idx, 13).Value = r[8]
-            ws.Cells(row_idx, 14).Value = r[14]
+            valores_fila = [
+                idx, anio, mes, 'Distribución', r[1], r[3], r[2], r[5], r[6], r[7], r[8], r[14]
+            ]
 
-            for col in range(3, 15):
-                cell = ws.Cells(row_idx, col)
-                cell.Font.Name = 'Arial'
-                cell.Font.Size = 9
-                cell.Font.Color = 0
-                for border_id in range(7, 13):
-                    cell.Borders(border_id).LineStyle = 1
-                    cell.Borders(border_id).Weight = 2
-                    cell.Borders(border_id).Color = 0
+            for c_offset, val in enumerate(valores_fila):
+                col_num = 3 + c_offset
+                cell = ws.cell(row=row_idx, column=col_num)
+                cell.value = val
+                cell.font = Font(name='Arial', size=9, color='000000')
+                cell.border = thin_border
 
-                if col in [3, 4, 5, 12, 13]:
-                    cell.HorizontalAlignment = -4108
+                if col_num in [3, 4, 5, 12, 13]:
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
                 else:
-                    cell.HorizontalAlignment = -4131
-                cell.VerticalAlignment = -4108
+                    cell.alignment = Alignment(horizontal='left', vertical='center')
 
             row_idx += 1
 
         if os.path.exists(output_path):
             os.remove(output_path)
 
-        wb.SaveAs(output_path, FileFormat=51)
-        wb.Close(SaveChanges=False)
-        excel.Quit()
-
-        pythoncom.CoUninitialize()
+        wb.save(output_path)
 
         return send_file(
             output_path,
@@ -1057,27 +1030,17 @@ def descargar_excel():
         )
 
     except Exception as e:
-        try:
-            wb.Close(SaveChanges=False)
-            excel.Quit()
-        except:
-            pass
-        pythoncom.CoUninitialize()
         flash(f'Error al generar el reporte con Excel: {str(e)}')
         return redirect(url_for('dashboard'))
 
 
 # ==========================================
-# DESCARGA DE EXCEL TODOS (HISTORIAL)
+# DESCARGA DE EXCEL TODOS / HISTORIAL (CON OPENPYXL)
 # ==========================================
 @app.route('/descargar_excel_todos')
 def descargar_excel_todos():
     if 'usuario' not in session:
         return redirect(url_for('login'))
-
-    if not HAS_WIN32:
-        flash('La generación automática de Excel por COM no está disponible en este servidor Linux.')
-        return redirect(url_for('dashboard'))
 
     conn = sqlite3.connect('datos.db')
     cursor = conn.cursor()
@@ -1090,65 +1053,46 @@ def descargar_excel_todos():
     output_filename = 'Informe_Historial_Todos_Alumnos.xlsx'
     output_path = os.path.join(base_dir, output_filename)
 
-    pythoncom.CoInitialize()
-
     try:
         if not os.path.exists(plantilla_excel):
             flash('Error: No se encontró la plantilla "plantillareporte_todos.xlsx".')
-            pythoncom.CoUninitialize()
             return redirect(url_for('dashboard'))
 
-        excel = win32com.client.Dispatch('Excel.Application')
-        excel.Visible = False
-        excel.DisplayAlerts = False
-
-        wb = excel.Workbooks.Open(plantilla_excel)
-        ws = wb.Sheets(1)
+        wb = openpyxl.load_workbook(plantilla_excel)
+        ws = wb.active
 
         start_row = 4
         row_idx = start_row
+        thin_border = Border(
+            left=Side(style='thin', color='000000'),
+            right=Side(style='thin', color='000000'),
+            top=Side(style='thin', color='000000'),
+            bottom=Side(style='thin', color='000000')
+        )
 
         for idx, r in enumerate(registros, start=1):
-            ws.Cells(row_idx, 1).Value = idx
-            ws.Cells(row_idx, 2).Value = r[2]
-            ws.Cells(row_idx, 3).Value = r[3]
-            ws.Cells(row_idx, 4).Value = r[4]
-            ws.Cells(row_idx, 5).Value = r[5]
-            ws.Cells(row_idx, 6).Value = r[6]
-            ws.Cells(row_idx, 7).Value = r[7]
-            ws.Cells(row_idx, 8).Value = r[8]
-            ws.Cells(row_idx, 9).Value = r[9]
-            ws.Cells(row_idx, 10).Value = r[10]
-            ws.Cells(row_idx, 11).Value = r[11]
-            ws.Cells(row_idx, 12).Value = r[12]
-            ws.Cells(row_idx, 13).Value = r[14]
+            valores_fila = [
+                idx, r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[14]
+            ]
 
-            for col in range(1, 14):
-                cell = ws.Cells(row_idx, col)
-                cell.Font.Name = 'Arial'
-                cell.Font.Size = 9
-                cell.Font.Color = 0
-                for border_id in range(7, 13):
-                    cell.Borders(border_id).LineStyle = 1
-                    cell.Borders(border_id).Weight = 2
-                    cell.Borders(border_id).Color = 0
+            for c_offset, val in enumerate(valores_fila):
+                col_num = 1 + c_offset
+                cell = ws.cell(row=row_idx, column=col_num)
+                cell.value = val
+                cell.font = Font(name='Arial', size=9, color='000000')
+                cell.border = thin_border
 
-                if col in [1, 7, 8, 9, 10, 11]:
-                    cell.HorizontalAlignment = -4108
+                if col_num in [1, 7, 8, 9, 10, 11]:
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
                 else:
-                    cell.HorizontalAlignment = -4131
-                cell.VerticalAlignment = -4108
+                    cell.alignment = Alignment(horizontal='left', vertical='center')
 
             row_idx += 1
 
         if os.path.exists(output_path):
             os.remove(output_path)
 
-        wb.SaveAs(output_path, FileFormat=51)
-        wb.Close(SaveChanges=False)
-        excel.Quit()
-
-        pythoncom.CoUninitialize()
+        wb.save(output_path)
 
         return send_file(
             output_path,
@@ -1158,12 +1102,6 @@ def descargar_excel_todos():
         )
 
     except Exception as e:
-        try:
-            wb.Close(SaveChanges=False)
-            excel.Quit()
-        except:
-            pass
-        pythoncom.CoUninitialize()
         flash(f'Error al generar el Excel de Historial: {str(e)}')
         return redirect(url_for('dashboard'))
 
