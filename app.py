@@ -956,7 +956,7 @@ def eliminar_oficio_zona(zona, nombre_archivo):
 
 
 # ==========================================
-# GENERADOR DEL EXCEL NORMA 15 (MÁXIMO 20 ALUMNOS POR HOJA, MEZCLANDO ZONAS)
+# GENERADOR DEL EXCEL NORMA 15 (MÁXIMO 20 ALUMNOS POR HOJA, CONSECUCURIVO REAL CO)
 # ==========================================
 FILA_INICIO = 15          # primera fila de datos en la plantilla
 FILAS_BASE = 20           # filas con borde que trae la plantilla (15 a 34 -> exactamente 20 alumnos)
@@ -1050,7 +1050,6 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
     if not registros:
         registros = []
 
-    # Dividir todos los registros en bloques exactos de máximo 20 alumnos por hoja
     tamano_bloque = 20
     bloques = [registros[i:i + tamano_bloque] for i in range(0, len(registros), tamano_bloque)]
     if not bloques:
@@ -1078,8 +1077,10 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
 
         filas_valores = []
         for i, r in enumerate(bloque, start=1):
+            numero_consecutivo_real = r[0]  # ID 'co' real de la base de datos
+            
             filas_valores.append([
-                i, anio, mes_es, "Distribución", r[1], r[3], r[2], r[5], r[6],
+                numero_consecutivo_real, anio, mes_es, "Distribución", r[1], r[3], r[2], r[5], r[6],
                 _fecha_dmy(r[7]), _fecha_dmy(r[8]), r[14],
             ])
 
