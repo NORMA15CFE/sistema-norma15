@@ -1067,34 +1067,42 @@ def descargar_excel():
 
 
 # ==========================================
-# DESCARGA DE EXCEL TODOS / HISTORIAL (CON OPENPYXL)
+# DESCARGA DE EXCEL NORMA 15 (RESPETANDO PLANTILLA ORIGINAL, FILAS 15, FIRMAS Y ESTRUCTURA)
 # ==========================================
-@app.route('/descargar_excel_todos')
-def descargar_excel_todos():
+@app.route('/descargar_excel')
+def descargar_excel():
     if 'usuario' not in session:
         return redirect(url_for('login'))
 
     conn = sqlite3.connect('datos.db')
     cursor = conn.cursor()
-    cursor.execute('SELECT * FROM registros ORDER BY co ASC')
+    cursor.execute('SELECT * FROM registros ORDER BY seccion ASC, co ASC')
     registros = cursor.fetchall()
     conn.close()
 
     base_dir = os.path.abspath(os.path.dirname(__file__))
-    plantilla_excel = os.path.join(base_dir, 'plantillareporte_todos.xlsx')
-    output_filename = 'Informe_Historial_Todos_Alumnos.xlsx'
+    plantilla_excel = os.path.join(base_dir, 'plantillareporte_norma15.xlsx')
+    output_filename = 'Informe_Norma15_Por_Zonas.xlsx'
     output_path = os.path.join(base_dir, output_filename)
 
     try:
         if not os.path.exists(plantilla_excel):
-            flash('Error: No se encontró la plantilla "plantillareporte_todos.xlsx".')
+            flash('Error: No se encontró la plantilla "plantillareporte_norma15.xlsx".')
             return redirect(url_for('dashboard'))
 
+        # Cargamos tu plantilla original conservando formato, imágenes y firmas intactas
         wb = openpyxl.load_workbook(plantilla_excel)
-        ws = wb.active
+        plantilla_ws = wb.active
+        plantilla_ws.title = "Base"
 
-        start_row = 4
-        row_idx = start_row
+        # Agrupamos los registros por zona (sección)
+        registros_por_zona = {}
+        for r in registros:
+            zona = r[1]
+            if zona not in registros_por_zona:
+                registros_por_zona[zona] = []
+            registros_por_zona[zona].append(r)
+
         thin_border = Border(
             left=Side(style='thin', color='000000'),
             right=Side(style='thin', color='000000'),
@@ -1102,31 +1110,66 @@ def descargar_excel_todos():
             bottom=Side(style='thin', color='000000')
         )
 
-        for idx, r in enumerate(registros, start=1):
-            valores_fila = [
-                idx, r[2], r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], r[11], r[12], r[14]
-            ]
+        # Mes actual en español basado en la fecha de hoy (ej. Octubre)
+        now_dt = datetime.now()
+        mes_actual_en = now_dt.strftime('%B')
+        mes_actual_es = MESES_ESP.get(mes_actual_en, mes_actual_en).capitalize()
+        anio_actual = now_dt.strftime('%Y')
 
-            for c_offset, val in enumerate(valores_fila):
-                col_num = 1 + c_offset
-                cell = ws.cell(row=row_idx, column=col_num)
-                
-                if isinstance(cell, MergedCell):
-                    for range_merged in ws.merged_cells.ranges:
-                        if cell.coordinate in range_merged:
-                            cell = ws.cell(row=range_merged.min_row, column=range_merged.min_col)
-                            break
+        primer_pestana = True
 
-                cell.value = val
-                cell.font = Font(name='Arial', size=9, color='000000')
-                cell.border = thin_border
+        for zona, regs in registros_por_zona.items():
+            nombre_pestana = zona.replace("/", "-").replace("\\", "-")[:30]
 
-                if col_num in [1, 7, 8, 9, 10, 11]:
-                    cell.alignment = Alignment(horizontal='center', vertical='center')
-                else:
-                    cell.alignment = Alignment(horizontal='left', vertical='center')
+            if primer_pestana:
+                ws = plantilla_ws
+                ws.title = nombre_pestana
+                primer_pestana = False
+            else:
+                ws = wb.copy_worksheet(plantilla_ws)
+                ws.title = nombre_pestana
 
-            row_idx += 1
+            start_row = 15  # <--- Los datos empiezan exactamente en la fila 15
+            
+            # Si hay más de 1 registro, insertamos las filas necesarias para empujar las firmas hacia abajo sin borrarlas
+            num_registros = len(regs)
+            if num_registros > 1:
+                ws.insert_rows(start_row + 1, amount=num_registros - 1)
+
+            row_idx = start_row
+
+            for idx, r in enumerate(regs, start=1):
+                # Mapeo exacto comenzando desde la columna B (columna 2):
+                # B(2)=No, C(3)=AÑO, D(4)=Mes reportado, E(5)=Coordinación, F(6)=Centro de trabajo, 
+                # G(7)=Tipo Apoyo, H(8)=Nombre Alumno, I(9)=Institución, J(10)=Carrera, 
+                # K(11)=Fecha Inicio, L(12)=Fecha Fin, M(13)=Monto del Apoyo
+                valores_fila = [
+                    idx, anio_actual, mes_actual_es, 'Distribución', r[1], r[3], r[2], r[5], r[6], r[7], r[8], r[14]
+                ]
+
+                for c_offset, val in enumerate(valores_fila):
+                    col_num = 2 + c_offset
+                    cell = ws.cell(row=row_idx, column=col_num)
+                    
+                    if isinstance(cell, MergedCell):
+                        for range_merged in ws.merged_cells.ranges:
+                            if cell.coordinate in range_merged:
+                                cell = ws.cell(row=range_merged.min_row, column=range_merged.min_col)
+                                break
+
+                    cell.value = val
+                    cell.font = Font(name='Arial', size=9, color='000000')
+                    cell.border = thin_border
+
+                    if col_num in [2, 3, 4, 11, 12]:
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+                    else:
+                        cell.alignment = Alignment(horizontal='left', vertical='center')
+
+                row_idx += 1
+
+        if "Base" in wb.sheetnames and len(wb.sheetnames) > 1:
+            del wb["Base"]
 
         if os.path.exists(output_path):
             os.remove(output_path)
@@ -1141,14 +1184,8 @@ def descargar_excel_todos():
         )
 
     except Exception as e:
-        flash(f'Error al generar el Excel de Historial: {str(e)}')
+        flash(f'Error al generar el reporte con Excel: {str(e)}')
         return redirect(url_for('dashboard'))
-
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
 
 
 # ==========================================
@@ -1484,4 +1521,3 @@ def eliminar_recibo_pago_mes(reporte_id, co):
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
-    
