@@ -956,12 +956,11 @@ def eliminar_oficio_zona(zona, nombre_archivo):
 
 
 # ==========================================
-# GENERADOR DEL EXCEL NORMA 15 (COLUMNAS DESDE C EXACTAS Y FIRMAS FIJAS)
+# GENERADOR DEL EXCEL NORMA 15 (MÁXIMO 20 ALUMNOS POR HOJA, MEZCLANDO ZONAS)
 # ==========================================
 FILA_INICIO = 15          # primera fila de datos en la plantilla
-FILAS_BASE = 20           # filas con borde que trae la plantilla (15 a 34)
+FILAS_BASE = 20           # filas con borde que trae la plantilla (15 a 34 -> exactamente 20 alumnos)
 ESTILO_DATOS = 9          # estilo de celda de datos de la plantilla
-COL_INICIAL = 3           # Columna C (3)
 COLUMNAS = "CDEFGHIJKLMN" # C=No, D=AÑO, E=Mes, F=Coordinación, G=Centro, H=Tipo, I=Nombre, J=Inst, K=Carrera, L=Inicio, M=Fin, N=Monto
 
 NS_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
@@ -969,24 +968,10 @@ REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 
 def _fecha_dmy(txt):
-    """'2026-10-19' -> '19/10/2026' (si no se puede convertir, se deja igual)."""
     try:
         return datetime.strptime(str(txt), "%Y-%m-%d").strftime("%d/%m/%Y")
     except (ValueError, TypeError):
         return "" if txt is None else str(txt)
-
-
-def _nombre_hoja(zona, usados):
-    for ch in '[]:*?/\\':
-        zona = zona.replace(ch, "-")
-    base = (zona.strip() or "Zona")[:31]
-    nombre, n = base, 2
-    while nombre.lower() in usados:
-        suf = f" ({n})"
-        nombre = base[: 31 - len(suf)] + suf
-        n += 1
-    usados.add(nombre.lower())
-    return nombre
 
 
 def _celda(ref, valor):
@@ -1004,7 +989,6 @@ def _fila_datos(num_fila, valores):
 
 
 def _desplazar_fila(xml_fila, delta):
-    """Recorre una fila de la plantilla 'delta' filas hacia abajo."""
     def nueva(m):
         return m.group(1) + str(int(m.group(2)) + delta)
     xml_fila = re.sub(r'(<row r=")(\d+)', nueva, xml_fila, count=1)
@@ -1013,11 +997,10 @@ def _desplazar_fila(xml_fila, delta):
 
 
 def _construir_hoja(sheet_tpl, filas_valores, primera_hoja):
-    """Devuelve el XML de una hoja a partir de la hoja base de la plantilla."""
     n = len(filas_valores)
     total_filas = max(n, FILAS_BASE)
-    extra = total_filas - FILAS_BASE            # filas que hay que insertar
-    ultima_fila_datos = FILA_INICIO + FILAS_BASE - 1   # 34
+    extra = total_filas - FILAS_BASE
+    ultima_fila_datos = FILA_INICIO + FILAS_BASE - 1
 
     m = re.search(r"<sheetData>(.*)</sheetData>", sheet_tpl, re.S)
     filas = re.findall(r'<row\b[^>]*?(?:/>|>.*?</row>)', m.group(1), re.S)
@@ -1029,15 +1012,13 @@ def _construir_hoja(sheet_tpl, filas_valores, primera_hoja):
 
     salida = []
     for r in sorted(por_num):
-        if r < FILA_INICIO:                      # encabezado: intacto
+        if r < FILA_INICIO:
             salida.append(por_num[r])
             
-    # Filas de datos
     for i in range(total_filas):
         vals = filas_valores[i] if i < n else [None] * len(COLUMNAS)
         salida.append(_fila_datos(FILA_INICIO + i, vals))
         
-    # Pie de página, firmas, etc.: se recorren 'extra' filas
     for r in sorted(por_num):
         if r > ultima_fila_datos:
             salida.append(_desplazar_fila(por_num[r], extra) if extra else por_num[r])
@@ -1066,11 +1047,14 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
     anio = str(anio or hoy.year)
     mes_es = mes_es or meses[hoy.month - 1]
 
-    zonas = {}
-    for r in registros:
-        zonas.setdefault(r[1], []).append(r)
-    if not zonas:
-        zonas = {"Sin registros": []}
+    if not registros:
+        registros = []
+
+    # Dividir todos los registros en bloques exactos de máximo 20 alumnos por hoja
+    tamano_bloque = 20
+    bloques = [registros[i:i + tamano_bloque] for i in range(0, len(registros), tamano_bloque)]
+    if not bloques:
+        bloques = [[]]
 
     zin = zipfile.ZipFile(plantilla_path)
     arch = {n: zin.read(n) for n in zin.namelist()}
@@ -1087,14 +1071,13 @@ def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=No
               "xl/comments1.xml", "xl/drawings/vmlDrawing1.vml"]:
         arch.pop(k, None)
 
-    nombres_usados = set()
     hojas_meta = []
-    for idx, (zona, regs) in enumerate(zonas.items(), start=1):
-        nombre = _nombre_hoja(zona, nombres_usados)
+    for idx, bloque in enumerate(bloques, start=1):
+        nombre = f"Informe {idx}"
         hojas_meta.append((nombre, idx))
 
         filas_valores = []
-        for i, r in enumerate(regs, start=1):
+        for i, r in enumerate(bloque, start=1):
             filas_valores.append([
                 i, anio, mes_es, "Distribución", r[1], r[3], r[2], r[5], r[6],
                 _fecha_dmy(r[7]), _fecha_dmy(r[8]), r[14],
