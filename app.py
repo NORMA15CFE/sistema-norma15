@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+import re
 import zipfile
 import io
 import docx
@@ -20,6 +21,7 @@ from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.cell.cell import MergedCell
 
 import sqlite3
+from xml.sax.saxutils import escape
 from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
@@ -954,7 +956,228 @@ def eliminar_oficio_zona(zona, nombre_archivo):
 
 
 # ==========================================
-# DESCARGA DE EXCEL NORMA 15 (RESPETANDO PLANTILLA ORIGINAL, FILAS 15, FIRMAS Y ESTRUCTURA)
+# GENERADOR DEL EXCEL NORMA 15 (CLONA LA PLANTILLA A NIVEL XML:
+# conserva logos, sello, comentarios, anchos, estilos y firmas)
+# ==========================================
+FILA_INICIO = 15          # primera fila de datos en la plantilla
+FILAS_BASE = 20           # filas con borde que trae la plantilla (15 a 34)
+ESTILO_DATOS = 9          # estilo de celda de datos de la plantilla
+COL_INICIAL = 3           # columna C
+COLUMNAS = "CDEFGHIJKLMN"
+
+NS_REL = "http://schemas.openxmlformats.org/package/2006/relationships"
+REL_BASE = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+
+
+def _fecha_dmy(txt):
+    """'2026-10-19' -> '19/10/2026' (si no se puede convertir, se deja igual)."""
+    try:
+        return datetime.strptime(str(txt), "%Y-%m-%d").strftime("%d/%m/%Y")
+    except (ValueError, TypeError):
+        return "" if txt is None else str(txt)
+
+
+def _nombre_hoja(zona, usados):
+    for ch in '[]:*?/\\':
+        zona = zona.replace(ch, "-")
+    base = (zona.strip() or "Zona")[:31]
+    nombre, n = base, 2
+    while nombre.lower() in usados:
+        suf = f" ({n})"
+        nombre = base[: 31 - len(suf)] + suf
+        n += 1
+    usados.add(nombre.lower())
+    return nombre
+
+
+def _celda(ref, valor):
+    if valor is None or valor == "":
+        return f'<c r="{ref}" s="{ESTILO_DATOS}"/>'
+    if isinstance(valor, (int, float)) and not isinstance(valor, bool):
+        return f'<c r="{ref}" s="{ESTILO_DATOS}"><v>{valor}</v></c>'
+    return (f'<c r="{ref}" s="{ESTILO_DATOS}" t="inlineStr">'
+            f'<is><t xml:space="preserve">{escape(str(valor))}</t></is></c>')
+
+
+def _fila_datos(num_fila, valores):
+    celdas = "".join(_celda(f"{col}{num_fila}", v) for col, v in zip(COLUMNAS, valores))
+    return f'<row r="{num_fila}">{celdas}</row>'
+
+
+def _desplazar_fila(xml_fila, delta):
+    """Recorre una fila de la plantilla 'delta' filas hacia abajo."""
+    def nueva(m):
+        return m.group(1) + str(int(m.group(2)) + delta)
+    xml_fila = re.sub(r'(<row r=")(\d+)', nueva, xml_fila, count=1)
+    xml_fila = re.sub(r'(<c r="[A-Z]+)(\d+)', nueva, xml_fila)
+    return xml_fila
+
+
+def _construir_hoja(sheet_tpl, filas_valores, primera_hoja):
+    """Devuelve el XML de una hoja a partir de la hoja base de la plantilla."""
+    n = len(filas_valores)
+    total_filas = max(n, FILAS_BASE)
+    extra = total_filas - FILAS_BASE            # filas que hay que insertar
+    ultima_fila_datos = FILA_INICIO + FILAS_BASE - 1   # 34
+
+    m = re.search(r"<sheetData>(.*)</sheetData>", sheet_tpl, re.S)
+    filas = re.findall(r'<row\b[^>]*?(?:/>|>.*?</row>)', m.group(1), re.S)
+    por_num = {int(re.match(r'<row r="(\d+)"', f).group(1)): f for f in filas}
+
+    salida = []
+    for r in sorted(por_num):
+        if r < FILA_INICIO:                      # encabezado: intacto
+            salida.append(por_num[r])
+    # Filas de datos (las que sobran de la plantilla se rellenan vacías)
+    for i in range(total_filas):
+        vals = filas_valores[i] if i < n else [None] * len(COLUMNAS)
+        salida.append(_fila_datos(FILA_INICIO + i, vals))
+    # Pie de página, firmas, etc.: se recorren 'extra' filas
+    for r in sorted(por_num):
+        if r > ultima_fila_datos:
+            salida.append(_desplazar_fila(por_num[r], extra) if extra else por_num[r])
+
+    xml = sheet_tpl[: m.start(1)] + "".join(salida) + sheet_tpl[m.end(1):]
+
+    # Celdas combinadas del pie: se recorren igual que las filas
+    if extra:
+        def mover_merge(mm):
+            def f(c):
+                col, row = c.group(1), int(c.group(2))
+                return f"{col}{row + extra if row > ultima_fila_datos else row}"
+            return re.sub(r"([A-Z]+)(\d+)", f, mm.group(0))
+        xml = re.sub(r'<mergeCell ref="[^"]+"', mover_merge, xml)
+        # dimensión de la hoja
+        xml = re.sub(r'<dimension ref="C1:O(\d+)"',
+                     lambda d: f'<dimension ref="C1:O{int(d.group(1)) + extra}"', xml)
+        xml = re.sub(r'<selection activeCell="C15" sqref="C15"/>',
+                     '<selection activeCell="C15" sqref="C15"/>', xml)
+
+    if not primera_hoja:
+        xml = xml.replace(' tabSelected="1"', "")
+    return xml
+
+
+def generar_norma15(registros, plantilla_path, output_path, anio=None, mes_es=None):
+    """
+    registros     : filas de la tabla `registros` (tuplas, mismo orden que en app.py)
+    plantilla_path: ruta a plantillareporte_norma15.xlsx
+    output_path   : dónde guardar el resultado
+    anio, mes_es  : opcionales (por defecto, fecha actual)
+    """
+    meses = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio",
+             "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+    hoy = datetime.now()
+    anio = str(anio or hoy.year)
+    mes_es = mes_es or meses[hoy.month - 1]
+
+    # --- agrupar por zona, respetando el orden en que vienen ---
+    zonas = {}
+    for r in registros:
+        zonas.setdefault(r[1], []).append(r)
+    if not zonas:                                   # sin datos: una hoja vacía
+        zonas = {"Sin registros": []}
+
+    zin = zipfile.ZipFile(plantilla_path)
+    arch = {n: zin.read(n) for n in zin.namelist()}
+    zin.close()
+
+    sheet_tpl = arch["xl/worksheets/sheet1.xml"].decode("utf-8")
+    drawing_tpl = arch["xl/drawings/drawing1.xml"]
+    drawing_rels_tpl = arch["xl/drawings/_rels/drawing1.xml.rels"]
+    comments_tpl = arch["xl/comments1.xml"]
+    vml_tpl = arch["xl/drawings/vmlDrawing1.vml"].decode("utf-8")
+
+    # quitamos las partes de la hoja única; se regeneran una por zona
+    for k in ["xl/worksheets/sheet1.xml", "xl/worksheets/_rels/sheet1.xml.rels",
+              "xl/drawings/drawing1.xml", "xl/drawings/_rels/drawing1.xml.rels",
+              "xl/comments1.xml", "xl/drawings/vmlDrawing1.vml"]:
+        arch.pop(k)
+
+    nombres_usados = set()
+    hojas_meta = []     # (nombre, indice)
+    for idx, (zona, regs) in enumerate(zonas.items(), start=1):
+        nombre = _nombre_hoja(zona, nombres_usados)
+        hojas_meta.append((nombre, idx))
+
+        filas_valores = []
+        for i, r in enumerate(regs, start=1):
+            filas_valores.append([
+                i, anio, mes_es, "Distribución", r[1], r[3], r[2], r[5], r[6],
+                _fecha_dmy(r[7]), _fecha_dmy(r[8]), r[14],
+            ])
+
+        arch[f"xl/worksheets/sheet{idx}.xml"] = _construir_hoja(
+            sheet_tpl, filas_valores, idx == 1).encode("utf-8")
+
+        arch[f"xl/worksheets/_rels/sheet{idx}.xml.rels"] = (
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n'
+            f'<Relationships xmlns="{NS_REL}">'
+            f'<Relationship Id="rId3" Type="{REL_BASE}/comments" Target="../comments{idx}.xml"/>'
+            f'<Relationship Id="rId2" Type="{REL_BASE}/vmlDrawing" Target="../drawings/vmlDrawing{idx}.vml"/>'
+            f'<Relationship Id="rId1" Type="{REL_BASE}/drawing" Target="../drawings/drawing{idx}.xml"/>'
+            '</Relationships>').encode("utf-8")
+
+        arch[f"xl/drawings/drawing{idx}.xml"] = drawing_tpl            # logos / sello
+        arch[f"xl/drawings/_rels/drawing{idx}.xml.rels"] = drawing_rels_tpl
+        arch[f"xl/comments{idx}.xml"] = comments_tpl                   # notas del encabezado
+
+        vml = re.sub(r'(idmap v:ext="edit" data=")\d+(")', rf'\g<1>{idx}\2', vml_tpl)
+        vml = re.sub(r"_x0000_s(\d+)",
+                     lambda m: f"_x0000_s{int(m.group(1)) + (idx - 1) * 1024}", vml)
+        arch[f"xl/drawings/vmlDrawing{idx}.vml"] = vml.encode("utf-8")
+
+    # --- workbook.xml ---
+    wb = arch["xl/workbook.xml"].decode("utf-8")
+    sheets_xml = "<sheets>" + "".join(
+        f'<sheet name="{escape(n, {chr(34): "&quot;"})}" sheetId="{i}" r:id="rIdS{i}"/>'
+        for n, i in hojas_meta) + "</sheets>"
+    wb = re.sub(r"<sheets>.*?</sheets>", sheets_xml, wb, flags=re.S)
+    arch["xl/workbook.xml"] = wb.encode("utf-8")
+
+    # --- workbook.xml.rels ---
+    rels = arch["xl/_rels/workbook.xml.rels"].decode("utf-8")
+    rels = re.sub(r'<Relationship Id="rId1"[^>]*worksheets/sheet1\.xml"/>', "", rels)
+    nuevas = "".join(
+        f'<Relationship Id="rIdS{i}" Type="{REL_BASE}/worksheet" Target="worksheets/sheet{i}.xml"/>'
+        for _, i in hojas_meta)
+    rels = rels.replace("</Relationships>", nuevas + "</Relationships>")
+    arch["xl/_rels/workbook.xml.rels"] = rels.encode("utf-8")
+
+    # --- [Content_Types].xml ---
+    ct = arch["[Content_Types].xml"].decode("utf-8")
+    for pat in [r'<Override PartName="/xl/worksheets/sheet1\.xml"[^>]*/>',
+                r'<Override PartName="/xl/drawings/drawing1\.xml"[^>]*/>',
+                r'<Override PartName="/xl/comments1\.xml"[^>]*/>']:
+        ct = re.sub(pat, "", ct)
+    extra_ct = ""
+    for _, i in hojas_meta:
+        extra_ct += (
+            f'<Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+            f'<Override PartName="/xl/drawings/drawing{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>'
+            f'<Override PartName="/xl/comments{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.comments+xml"/>')
+    ct = ct.replace("</Types>", extra_ct + "</Types>")
+    arch["[Content_Types].xml"] = ct.encode("utf-8")
+
+    # --- docProps/app.xml (lista de hojas) ---
+    app = arch["docProps/app.xml"].decode("utf-8")
+    titulos = "".join(f"<vt:lpstr>{escape(n)}</vt:lpstr>" for n, _ in hojas_meta)
+    app = re.sub(r"<vt:i4>\d+</vt:i4>", f"<vt:i4>{len(hojas_meta)}</vt:i4>", app, count=1)
+    app = re.sub(r'<TitlesOfParts>.*?</TitlesOfParts>',
+                 f'<TitlesOfParts><vt:vector size="{len(hojas_meta)}" baseType="lpstr">{titulos}</vt:vector></TitlesOfParts>',
+                 app, flags=re.S)
+    arch["docProps/app.xml"] = app.encode("utf-8")
+
+    # --- escribir el .xlsx ([Content_Types].xml primero) ---
+    orden = ["[Content_Types].xml"] + [k for k in arch if k != "[Content_Types].xml"]
+    with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zout:
+        for k in orden:
+            zout.writestr(k, arch[k])
+    return output_path
+
+
+# ==========================================
+# DESCARGA DE EXCEL NORMA 15 (CLON EXACTO DE LA PLANTILLA: IMAGENES, FIRMAS Y FORMATO)
 # ==========================================
 @app.route('/descargar_excel')
 def descargar_excel():
@@ -977,91 +1200,7 @@ def descargar_excel():
             flash('Error: No se encontró la plantilla "plantillareporte_norma15.xlsx".')
             return redirect(url_for('dashboard'))
 
-        # Cargamos tu plantilla original conservando formato, imágenes y firmas intactas
-        wb = openpyxl.load_workbook(plantilla_excel)
-        plantilla_ws = wb.active
-        plantilla_ws.title = "Base"
-
-        # Agrupamos los registros por zona (sección)
-        registros_por_zona = {}
-        for r in registros:
-            zona = r[1]
-            if zona not in registros_por_zona:
-                registros_por_zona[zona] = []
-            registros_por_zona[zona].append(r)
-
-        thin_border = Border(
-            left=Side(style='thin', color='000000'),
-            right=Side(style='thin', color='000000'),
-            top=Side(style='thin', color='000000'),
-            bottom=Side(style='thin', color='000000')
-        )
-
-        # Mes actual en español basado en la fecha de hoy
-        now_dt = datetime.now()
-        mes_actual_en = now_dt.strftime('%B')
-        mes_actual_es = MESES_ESP.get(mes_actual_en, mes_actual_en).capitalize()
-        anio_actual = now_dt.strftime('%Y')
-
-        primer_pestana = True
-
-        for zona, regs in registros_por_zona.items():
-            nombre_pestana = zona.replace("/", "-").replace("\\", "-")[:30]
-
-            if primer_pestana:
-                ws = plantilla_ws
-                ws.title = nombre_pestana
-                primer_pestana = False
-            else:
-                ws = wb.copy_worksheet(plantilla_ws)
-                ws.title = nombre_pestana
-
-            start_row = 15  # <--- Los datos empiezan exactamente en la fila 15
-            
-            # Si hay más de 1 registro, insertamos las filas necesarias para empujar las firmas hacia abajo sin borrarlas
-            num_registros = len(regs)
-            if num_registros > 1:
-                ws.insert_rows(start_row + 1, amount=num_registros - 1)
-
-            row_idx = start_row
-
-            for idx, r in enumerate(regs, start=1):
-                # Mapeo exacto comenzando desde la columna B (columna 2):
-                # B(2)=No, C(3)=AÑO, D(4)=Mes reportado, E(5)=Coordinación, F(6)=Centro de trabajo, 
-                # G(7)=Tipo Apoyo, H(8)=Nombre Alumno, I(9)=Institución, J(10)=Carrera, 
-                # K(11)=Fecha Inicio, L(12)=Fecha Fin, M(13)=Monto del Apoyo
-                valores_fila = [
-                    idx, anio_actual, mes_actual_es, 'Distribución', r[1], r[3], r[2], r[5], r[6], r[7], r[8], r[14]
-                ]
-
-                for c_offset, val in enumerate(valores_fila):
-                    col_num = 2 + c_offset
-                    cell = ws.cell(row=row_idx, column=col_num)
-                    
-                    if isinstance(cell, MergedCell):
-                        for range_merged in ws.merged_cells.ranges:
-                            if cell.coordinate in range_merged:
-                                cell = ws.cell(row=range_merged.min_row, column=range_merged.min_col)
-                                break
-
-                    cell.value = val
-                    cell.font = Font(name='Arial', size=9, color='000000')
-                    cell.border = thin_border
-
-                    if col_num in [2, 3, 4, 11, 12]:
-                        cell.alignment = Alignment(horizontal='center', vertical='center')
-                    else:
-                        cell.alignment = Alignment(horizontal='left', vertical='center')
-
-                row_idx += 1
-
-        if "Base" in wb.sheetnames and len(wb.sheetnames) > 1:
-            del wb["Base"]
-
-        if os.path.exists(output_path):
-            os.remove(output_path)
-
-        wb.save(output_path)
+        generar_norma15(registros, plantilla_excel, output_path)
 
         return send_file(
             output_path,
