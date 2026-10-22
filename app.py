@@ -1,4 +1,5 @@
 from datetime import datetime
+import copy
 import os
 import re
 import zipfile
@@ -20,6 +21,7 @@ from flask_sqlalchemy import SQLAlchemy
 import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.cell.cell import MergedCell
+from openpyxl.drawing.image import Image as XLImage
 
 from xml.sax.saxutils import escape
 from werkzeug.utils import secure_filename
@@ -88,6 +90,14 @@ MESES_ESP = {
     'November': 'noviembre',
     'December': 'diciembre',
 }
+
+# ==========================================
+# CONFIGURACIÓN DEL REPORTE EXCEL (PLANTILLA)
+# ==========================================
+PLANTILLA_REPORTE = 'plantillareporte_norma15.xlsx'
+COORDINACION = 'División Golfo Centro'   # <-- cambia esto por el valor correcto
+FILAS_POR_HOJA = 20
+FILA_INICIAL = 15                        # primera fila de datos en la plantilla (15 a 34)
 
 
 # ==========================================
@@ -341,7 +351,7 @@ def editar(co):
 def dar_de_baja(co):
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    
+
     motivo = request.form.get('motivo_baja', '').strip()
 
     if session['rol'] == 'admin':
@@ -438,7 +448,7 @@ def eliminar_archivo(co, campo):
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], url_archivo)
                 if os.path.exists(filepath):
                     os.remove(filepath)
-            
+
             setattr(alumno, db_col, None)
             if db_col == 'archivo_clabe':
                 alumno.banco_clabe = None
@@ -667,7 +677,7 @@ def generar_convenio_gratuito(co):
 def gestionar_oficios_zona():
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    
+
     usuario_actual = session['usuario']
     rol_usuario = session['rol']
     zona_seleccionada = request.args.get('zona_seleccionada', 'Oficinas Divisionales' if rol_usuario == 'admin' else usuario_actual)
@@ -728,7 +738,7 @@ def subir_reporte_mes(co):
     if file and file.filename != '' and mes_anio:
         upload_result = cloudinary.uploader.upload(file, resource_type="auto")
         file_url = upload_result.get('secure_url')
-        
+
         existente = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
         if existente:
             existente.nombre_archivo = file_url
@@ -770,7 +780,7 @@ def subir_recibo_alumno_mes(co):
     if file and file.filename != '' and mes_anio:
         upload_result = cloudinary.uploader.upload(file, resource_type="auto")
         file_url = upload_result.get('secure_url')
-        
+
         existente = ReciboAlumnoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
         if existente:
             existente.nombre_archivo = file_url
@@ -812,7 +822,7 @@ def subir_recibo_pago_mes(co):
     if file and file.filename != '' and mes_anio:
         upload_result = cloudinary.uploader.upload(file, resource_type="auto")
         file_url = upload_result.get('secure_url')
-        
+
         existente = ReciboPagoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
         if existente:
             existente.nombre_archivo = file_url
@@ -837,7 +847,7 @@ def eliminar_recibo_pago_mes(reporte_id, co):
 
 
 # ==========================================
-# RUTAS DE EMERGENCIA Y EXCEL CON OPENPYXL
+# RUTAS DE EMERGENCIA
 # ==========================================
 @app.route('/crear_tablas_emergencia')
 def crear_tablas_emergencia():
@@ -845,51 +855,114 @@ def crear_tablas_emergencia():
     return "¡Tablas creadas con éxito en la base de datos de Render!"
 
 
+# ==========================================
+# REPORTE EXCEL OFICIAL (BASADO EN PLANTILLA)
+# ==========================================
+def _fecha_corta(valor):
+    try:
+        return datetime.strptime(valor, '%Y-%m-%d').strftime('%d/%m/%Y')
+    except Exception:
+        return valor or ''
+
+
+def _monto(remuneracion):
+    m = re.search(r'\$\s*([\d,]+(?:\.\d+)?)', remuneracion or '')
+    return f'${m.group(1)}' if m else 'Título gratuito'
+
+
+def _copiar_hoja_con_imagenes(wb, origen, titulo, imagenes):
+    nueva = wb.copy_worksheet(origen)
+    nueva.title = titulo
+    for datos, w, h, anchor in imagenes:
+        copia = XLImage(io.BytesIO(datos))
+        copia.width, copia.height = w, h
+        copia.anchor = copy.deepcopy(anchor)
+        nueva.add_image(copia)
+    return nueva
+
+
+def generar_reporte_plantilla(registros):
+    """
+    Llena plantillareporte_norma15.xlsx.
+    - Mes reportado = mes en que se descarga el reporte.
+    - 20 alumnos por hoja, agrupados por número de CO (1-20, 21-40, ...).
+    """
+    wb = openpyxl.load_workbook(PLANTILLA_REPORTE)
+    base = wb.active
+    ahora = datetime.now()
+    mes_es = MESES_ESP[ahora.strftime('%B')]
+    mes_reportado = mes_es.upper()
+    fecha_elab = f"Xalapa, Ver. a {ahora.day} de {mes_es} del {ahora.year}"
+
+    # Agrupar por bloque de CO: (co-1)//20 -> 0 = CO 1-20, 1 = CO 21-40, ...
+    bloques = {}
+    for r in registros:
+        bloques.setdefault((r.co - 1) // FILAS_POR_HOJA, []).append(r)
+    if not bloques:
+        bloques = {0: []}
+    claves = sorted(bloques)
+
+    # Guardar imágenes (logos) de la plantilla para recrearlas en cada hoja
+    imagenes = [(img._data(), img.width, img.height, img.anchor) for img in base._images]
+    base._images = []
+    for datos, w, h, anchor in imagenes:
+        im = XLImage(io.BytesIO(datos))
+        im.width, im.height = w, h
+        im.anchor = copy.deepcopy(anchor)
+        base.add_image(im)
+
+    # Crear las hojas copiando la plantilla limpia (antes de llenar datos)
+    hojas = {claves[0]: base}
+    for k in claves[1:]:
+        ini = k * FILAS_POR_HOJA + 1
+        hojas[k] = _copiar_hoja_con_imagenes(wb, base, f'CO {ini}-{ini + FILAS_POR_HOJA - 1}', imagenes)
+    ini0 = claves[0] * FILAS_POR_HOJA + 1
+    base.title = f'CO {ini0}-{ini0 + FILAS_POR_HOJA - 1}'
+
+    # Llenar datos (columnas C a N de la plantilla)
+    for k in claves:
+        ws = hojas[k]
+        for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
+            fila = FILA_INICIAL + i
+            valores = [
+                r.co,
+                ahora.year,
+                mes_reportado,
+                COORDINACION,
+                r.seccion,
+                r.tipo_apoyo,
+                r.nombre_alumno,
+                r.institucion,
+                r.carrera,
+                _fecha_corta(r.fecha_inicio),
+                _fecha_corta(r.fecha_fin),
+                _monto(r.tipo_remuneracion),
+            ]
+            for col, v in enumerate(valores, start=3):
+                ws.cell(row=fila, column=col, value=v)
+        ws['G36'] = fecha_elab
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+    return out
+
+
 @app.route('/descargar_excel')
 def descargar_excel():
     if 'usuario' not in session:
         return redirect(url_for('login'))
 
-    # Generación del reporte oficial respetando la plantilla y bloques de 20 alumnos por hoja
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Reporte Oficial"
+    if not os.path.exists(PLANTILLA_REPORTE):
+        flash(f'Error: No se encontró el archivo "{PLANTILLA_REPORTE}".')
+        return redirect(url_for('dashboard'))
 
     if session['rol'] == 'admin':
         registros = Registro.query.order_by(Registro.co.asc()).all()
     else:
         registros = Registro.query.filter_by(seccion=session['usuario']).order_by(Registro.co.asc()).all()
 
-    # Estilos básicos
-    font_bold = Font(name='Calibri', size=11, bold=True)
-    align_center = Alignment(horizontal='center', vertical='center')
-    border_thin = Border(
-        left=Side(style='thin'), right=Side(style='thin'),
-        top=Side(style='thin'), bottom=Side(style='thin')
-    )
-
-    # Cabecera
-    headers = ["CO", "Zona", "Nombre del Alumno", "Tipo Apoyo", "Área", "Institución", "Carrera", "Estatus", "Remuneración", "Horas"]
-    ws.append(headers)
-    for col_num in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col_num)
-        cell.font = font_bold
-        cell.alignment = align_center
-        cell.border = border_thin
-
-    # Llenado de filas con control de paginación / 20 alumnos por sección o bloque si aplica
-    row_idx = 2
-    for r in registros:
-        ws.append([
-            r.co, r.seccion, r.nombre_alumno, r.tipo_apoyo, r.area,
-            r.institucion, r.carrera, r.estatus, r.tipo_remuneracion, r.horas
-        ])
-        row_idx += 1
-
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-
+    output = generar_reporte_plantilla(registros)
     return send_file(
         output,
         as_attachment=True,
@@ -903,38 +976,12 @@ def descargar_excel_todos():
     if 'usuario' not in session:
         return redirect(url_for('login'))
 
-    # Historial completo con todos los alumnos sin restricción
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "Historial Completo"
+    if not os.path.exists(PLANTILLA_REPORTE):
+        flash(f'Error: No se encontró el archivo "{PLANTILLA_REPORTE}".')
+        return redirect(url_for('dashboard'))
 
     registros = Registro.query.order_by(Registro.co.asc()).all()
-
-    font_bold = Font(name='Calibri', size=11, bold=True)
-    align_center = Alignment(horizontal='center', vertical='center')
-    border_thin = Border(
-        left=Side(style='thin'), right=Side(style='thin'),
-        top=Side(style='thin'), bottom=Side(style='thin')
-    )
-
-    headers = ["CO", "Zona", "Nombre del Alumno", "Tipo Apoyo", "Área", "Institución", "Carrera", "Estatus", "Remuneración", "Horas"]
-    ws.append(headers)
-    for col_num in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col_num)
-        cell.font = font_bold
-        cell.alignment = align_center
-        cell.border = border_thin
-
-    for r in registros:
-        ws.append([
-            r.co, r.seccion, r.nombre_alumno, r.tipo_apoyo, r.area,
-            r.institucion, r.carrera, r.estatus, r.tipo_remuneracion, r.horas
-        ])
-
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-
+    output = generar_reporte_plantilla(registros)
     return send_file(
         output,
         as_attachment=True,
