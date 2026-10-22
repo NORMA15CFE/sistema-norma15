@@ -61,10 +61,6 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
-# CREAR LAS TABLAS AUTOMÁTICAMENTE AL INICIAR EN RENDER
-with app.app_context():
-    db.create_all()
-
 USUARIOS_PERMITIDOS = {
     'DJ000': {'nombre': 'Oficinas Divisionales', 'rol': 'admin'},
     'DJ010': {'nombre': 'Poza Rica', 'rol': 'seccion'},
@@ -841,6 +837,15 @@ def eliminar_recibo_pago_mes(reporte_id, co):
 
 
 # ==========================================
+# RUTA DE EMERGENCIA PARA CREAR TABLAS
+# ==========================================
+@app.route('/crear_tablas_emergencia')
+def crear_tablas_emergencia():
+    db.create_all()
+    return "¡Tablas creadas con éxito en la base de datos de Render!"
+
+
+# ==========================================
 # EXCEL RUTAS
 # ==========================================
 @app.route('/descargar_excel')
@@ -853,3 +858,4 @@ def descargar_excel():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+    
