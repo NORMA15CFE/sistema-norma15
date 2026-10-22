@@ -837,7 +837,7 @@ def eliminar_recibo_pago_mes(reporte_id, co):
 
 
 # ==========================================
-# RUTA DE EMERGENCIA PARA CREAR TABLAS
+# RUTAS DE EMERGENCIA Y EXCEL
 # ==========================================
 @app.route('/crear_tablas_emergencia')
 def crear_tablas_emergencia():
@@ -845,11 +845,15 @@ def crear_tablas_emergencia():
     return "¡Tablas creadas con éxito en la base de datos de Render!"
 
 
-# ==========================================
-# EXCEL RUTAS
-# ==========================================
 @app.route('/descargar_excel')
 def descargar_excel():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    return redirect(url_for('dashboard'))
+
+
+@app.route('/descargar_excel_todos')
+def descargar_excel_todos():
     if 'usuario' not in session:
         return redirect(url_for('login'))
     return redirect(url_for('dashboard'))
@@ -858,4 +862,3 @@ def descargar_excel():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
-    
