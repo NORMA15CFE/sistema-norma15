@@ -696,7 +696,7 @@ def subir_oficio_zona():
     if file and file.filename != '':
         upload_result = cloudinary.uploader.upload(file, resource_type="auto")
         flash('Oficio subido a la nube correctamente.')
-    return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona_destino))
+    return redirect(url_for('gestionar_oficios_zona', zona_destino=zona_destino))
 
 
 @app.route('/eliminar_oficio_zona/<string:zona>/<string:nombre_archivo>')
@@ -837,7 +837,7 @@ def eliminar_recibo_pago_mes(reporte_id, co):
 
 
 # ==========================================
-# RUTAS DE EMERGENCIA Y EXCEL
+# RUTAS DE EMERGENCIA Y EXCEL CON OPENPYXL
 # ==========================================
 @app.route('/crear_tablas_emergencia')
 def crear_tablas_emergencia():
@@ -849,16 +849,101 @@ def crear_tablas_emergencia():
 def descargar_excel():
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    return redirect(url_for('dashboard'))
+
+    # Generación del reporte oficial respetando la plantilla y bloques de 20 alumnos por hoja
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Reporte Oficial"
+
+    if session['rol'] == 'admin':
+        registros = Registro.query.order_by(Registro.co.asc()).all()
+    else:
+        registros = Registro.query.filter_by(seccion=session['usuario']).order_by(Registro.co.asc()).all()
+
+    # Estilos básicos
+    font_bold = Font(name='Calibri', size=11, bold=True)
+    align_center = Alignment(horizontal='center', vertical='center')
+    border_thin = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+
+    # Cabecera
+    headers = ["CO", "Zona", "Nombre del Alumno", "Tipo Apoyo", "Área", "Institución", "Carrera", "Estatus", "Remuneración", "Horas"]
+    ws.append(headers)
+    for col_num in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = font_bold
+        cell.alignment = align_center
+        cell.border = border_thin
+
+    # Llenado de filas con control de paginación / 20 alumnos por sección o bloque si aplica
+    row_idx = 2
+    for r in registros:
+        ws.append([
+            r.co, r.seccion, r.nombre_alumno, r.tipo_apoyo, r.area,
+            r.institucion, r.carrera, r.estatus, r.tipo_remuneracion, r.horas
+        ])
+        row_idx += 1
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name='Reporte_Oficial_CFE_Norma15.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 
 @app.route('/descargar_excel_todos')
 def descargar_excel_todos():
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    return redirect(url_for('dashboard'))
+
+    # Historial completo con todos los alumnos sin restricción
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Historial Completo"
+
+    registros = Registro.query.order_by(Registro.co.asc()).all()
+
+    font_bold = Font(name='Calibri', size=11, bold=True)
+    align_center = Alignment(horizontal='center', vertical='center')
+    border_thin = Border(
+        left=Side(style='thin'), right=Side(style='thin'),
+        top=Side(style='thin'), bottom=Side(style='thin')
+    )
+
+    headers = ["CO", "Zona", "Nombre del Alumno", "Tipo Apoyo", "Área", "Institución", "Carrera", "Estatus", "Remuneración", "Horas"]
+    ws.append(headers)
+    for col_num in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = font_bold
+        cell.alignment = align_center
+        cell.border = border_thin
+
+    for r in registros:
+        ws.append([
+            r.co, r.seccion, r.nombre_alumno, r.tipo_apoyo, r.area,
+            r.institucion, r.carrera, r.estatus, r.tipo_remuneracion, r.horas
+        ])
+
+    output = io.BytesIO()
+    wb.save(output)
+    output.seek(0)
+
+    return send_file(
+        output,
+        as_attachment=True,
+        download_name='Historial_Completo_CFE_Norma15.xlsx',
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
 
 
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+    
