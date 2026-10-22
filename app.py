@@ -61,6 +61,10 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
 
+# CREAR LAS TABLAS AUTOMÁTICAMENTE AL INICIAR EN RENDER
+with app.app_context():
+    db.create_all()
+
 USUARIOS_PERMITIDOS = {
     'DJ000': {'nombre': 'Oficinas Divisionales', 'rol': 'admin'},
     'DJ010': {'nombre': 'Poza Rica', 'rol': 'seccion'},
@@ -185,8 +189,6 @@ def fecha_a_espanol(dt_obj):
 def init_db():
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    with app.app_context():
-        db.create_all()
 
 
 @app.route('/')
