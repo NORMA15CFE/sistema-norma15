@@ -1100,6 +1100,46 @@ def generar_reporte_plantilla(registros):
             for col_idx, valor in enumerate(valores, start=3):
                 ws.cell(row=fila, column=col_idx).value = valor
 
+        # Aplicar explícitamente el formato oficial de la tabla.
+        # Esto evita que Excel muestre solo las líneas de cuadrícula grises
+        # si algún estilo de la plantilla se pierde al generar/guardar el libro.
+        from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
+
+        gris_encabezado = PatternFill(fill_type="solid", fgColor="FF747474")
+        linea_negra = Side(style="thin", color="FF000000")
+        borde_tabla = Border(
+            left=linea_negra,
+            right=linea_negra,
+            top=linea_negra,
+            bottom=linea_negra,
+        )
+
+        # Encabezados: C14:N14 (No., Año, Mes, Coordinación, etc.).
+        for col in range(3, 15):
+            celda = ws.cell(row=14, column=col)
+            celda.fill = copy.copy(gris_encabezado)
+            celda.border = copy.copy(borde_tabla)
+            celda.alignment = Alignment(
+                horizontal="center", vertical="center", wrap_text=True
+            )
+            celda.font = copy.copy(celda.font)
+            celda.font = Font(
+                name=celda.font.name or "Arial",
+                size=celda.font.sz or 9,
+                bold=True,
+                italic=celda.font.italic,
+                color=celda.font.color,
+            )
+
+        # Filas de datos: bordes negros continuos, sin cambiar los valores.
+        for fila in range(FILA_INICIAL, FILA_INICIAL + FILAS_POR_HOJA):
+            for col in range(3, 15):
+                celda = ws.cell(row=fila, column=col)
+                celda.border = copy.copy(borde_tabla)
+                celda.alignment = Alignment(
+                    horizontal="center", vertical="center", wrap_text=True
+                )
+
         # La dirección de Administración está en un cuadro de texto de la
         # plantilla. No se convierte en celdas ni se vuelve a crear.
         ws["G36"] = fecha_elab
@@ -1163,3 +1203,4 @@ def descargar_excel_todos():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+
