@@ -96,7 +96,7 @@ MESES_ESP = {
 # ==========================================
 PLANTILLA_REPORTE = 'plantillareporte_norma15.xlsx'
 FILAS_POR_HOJA = 20
-FILA_INICIAL = 15                        # primera fila de datos en la plantilla (15 a 34)
+FILA_INICIAL = 15
 
 
 # ==========================================
@@ -883,9 +883,10 @@ def _copiar_hoja_con_imagenes(wb, origen, titulo, imagenes):
 def generar_reporte_plantilla(registros):
     """
     Llena plantillareporte_norma15.xlsx.
-    - Mes reportado = mes en que se descarga el reporte.
-    - 20 alumnos por hoja, agrupados por número de CO (1-20, 21-40, ...).
-    - Columna F muestra la zona/sección del alumno (r.seccion).
+    - Columna F: Coordinación / Gerencia ("División Golfo Centro")
+    - Columna G: Centro de trabajo (Área del alumno: r.area)
+    - Mes reportado = mes actual.
+    - 20 alumnos por hoja.
     """
     wb = openpyxl.load_workbook(PLANTILLA_REPORTE)
     base = wb.active
@@ -894,7 +895,7 @@ def generar_reporte_plantilla(registros):
     mes_reportado = mes_es.upper()
     fecha_elab = f"Xalapa, Ver. a {ahora.day} de {mes_es} del {ahora.year}"
 
-    # Agrupar por bloque de CO: (co-1)//20 -> 0 = CO 1-20, 1 = CO 21-40, ...
+    # Agrupar por bloque de CO (20 por hoja)
     bloques = {}
     for r in registros:
         bloques.setdefault((r.co - 1) // FILAS_POR_HOJA, []).append(r)
@@ -902,7 +903,7 @@ def generar_reporte_plantilla(registros):
         bloques = {0: []}
     claves = sorted(bloques)
 
-    # Guardar imágenes (logos) de la plantilla para recrearlas en cada hoja
+    # Conservar imágenes/logos de la plantilla
     imagenes = [(img._data(), img.width, img.height, img.anchor) for img in base._images]
     base._images = []
     for datos, w, h, anchor in imagenes:
@@ -911,7 +912,6 @@ def generar_reporte_plantilla(registros):
         im.anchor = copy.deepcopy(anchor)
         base.add_image(im)
 
-    # Crear las hojas copiando la plantilla limpia (antes de llenar datos)
     hojas = {claves[0]: base}
     for k in claves[1:]:
         ini = k * FILAS_POR_HOJA + 1
@@ -919,28 +919,27 @@ def generar_reporte_plantilla(registros):
     ini0 = claves[0] * FILAS_POR_HOJA + 1
     base.title = f'CO {ini0}-{ini0 + FILAS_POR_HOJA - 1}'
 
-    # Llenar datos (columnas C a N de la plantilla)
+    # Llenar datos respetando las columnas correctas de la plantilla
     for k in claves:
         ws = hojas[k]
         for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
             fila = FILA_INICIAL + i
             valores = [
-                r.co,
-                ahora.year,
-                mes_reportado,
-                r.seccion,     # Zona / sección del alumno en lugar de texto genérico
-                r.seccion,     # Centro de trabajo
-                r.tipo_apoyo,
-                r.nombre_alumno,
-                r.institucion,
-                r.carrera,
-                _fecha_corta(r.fecha_inicio),
-                _fecha_corta(r.fecha_fin),
-                _monto(r.tipo_remuneracion),
+                r.co,                  # Col C: No.
+                ahora.year,            # Col D: AÑO
+                mes_reportado,         # Col E: Mes reportado
+                "División Golfo Centro",# Col F: Coordinación / Gerencia
+                r.area,                # Col G: Centro de trabajo (Área del alumno)
+                r.tipo_apoyo,          # Col H: Tipo
+                r.nombre_alumno,       # Col I: Nombre de la Persona Estudiante
+                r.institucion,         # Col J: Nombre de la institución
+                r.carrera,             # Col K: Carrera
+                _fecha_corta(r.fecha_inicio), # Col L: Fecha de Inicio
+                _fecha_corta(r.fecha_fin),    # Col M: Fecha de conclusión
+                _monto(r.tipo_remuneracion),  # Col N: Monto del Apoyo
             ]
             for col, v in enumerate(valores, start=3):
                 cell = ws.cell(row=fila, column=col, value=v)
-                # Asegurar que no tengan fondo gris (sin relleno)
                 cell.fill = openpyxl.styles.PatternFill(fill_type=None)
         ws['G36'] = fecha_elab
 
