@@ -95,7 +95,6 @@ MESES_ESP = {
 # CONFIGURACIÓN DEL REPORTE EXCEL (PLANTILLA)
 # ==========================================
 PLANTILLA_REPORTE = 'plantillareporte_norma15.xlsx'
-COORDINACION = 'División Golfo Centro'   # <-- cambia esto por el valor correcto
 FILAS_POR_HOJA = 20
 FILA_INICIAL = 15                        # primera fila de datos en la plantilla (15 a 34)
 
@@ -886,6 +885,7 @@ def generar_reporte_plantilla(registros):
     Llena plantillareporte_norma15.xlsx.
     - Mes reportado = mes en que se descarga el reporte.
     - 20 alumnos por hoja, agrupados por número de CO (1-20, 21-40, ...).
+    - Columna F muestra la zona/sección del alumno (r.seccion).
     """
     wb = openpyxl.load_workbook(PLANTILLA_REPORTE)
     base = wb.active
@@ -928,8 +928,8 @@ def generar_reporte_plantilla(registros):
                 r.co,
                 ahora.year,
                 mes_reportado,
-                COORDINACION,
-                r.seccion,
+                r.seccion,     # Zona / sección del alumno en lugar de texto genérico
+                r.seccion,     # Centro de trabajo
                 r.tipo_apoyo,
                 r.nombre_alumno,
                 r.institucion,
@@ -939,7 +939,9 @@ def generar_reporte_plantilla(registros):
                 _monto(r.tipo_remuneracion),
             ]
             for col, v in enumerate(valores, start=3):
-                ws.cell(row=fila, column=col, value=v)
+                cell = ws.cell(row=fila, column=col, value=v)
+                # Asegurar que no tengan fondo gris (sin relleno)
+                cell.fill = openpyxl.styles.PatternFill(fill_type=None)
         ws['G36'] = fecha_elab
 
     out = io.BytesIO()
@@ -958,7 +960,11 @@ def descargar_excel():
         return redirect(url_for('dashboard'))
 
     if session['rol'] == 'admin':
-        registros = Registro.query.order_by(Registro.co.asc()).all()
+        zona_filtro = request.args.get('zona_filtro')
+        if zona_filtro and zona_filtro != 'TODOS':
+            registros = Registro.query.filter_by(seccion=zona_filtro).order_by(Registro.co.asc()).all()
+        else:
+            registros = Registro.query.order_by(Registro.co.asc()).all()
     else:
         registros = Registro.query.filter_by(seccion=session['usuario']).order_by(Registro.co.asc()).all()
 
