@@ -882,10 +882,10 @@ def _copiar_hoja_con_imagenes(wb, origen, titulo, imagenes):
 
 def generar_reporte_plantilla(registros):
     """
-    Llena plantillareporte_norma15.xlsx.
-    - Columna F: Coordinación / Gerencia ("División Golfo Centro")
-    - Columna G: Centro de trabajo (Área del alumno: r.area)
-    - Mes reportado = mes actual.
+    Llena plantillareporte_norma15.xlsx respetando al 100% los bordes,
+    estilos, formato y estructura de la plantilla original.
+    - Columna F: Zona / Sección del alumno (r.seccion)
+    - Columna G: Centro de trabajo (r.area)
     - 20 alumnos por hoja.
     """
     wb = openpyxl.load_workbook(PLANTILLA_REPORTE)
@@ -919,7 +919,7 @@ def generar_reporte_plantilla(registros):
     ini0 = claves[0] * FILAS_POR_HOJA + 1
     base.title = f'CO {ini0}-{ini0 + FILAS_POR_HOJA - 1}'
 
-    # Llenar datos respetando las columnas correctas de la plantilla
+    # Llenar solo los valores de las celdas SIN modificar bordes ni estilos de la plantilla
     for k in claves:
         ws = hojas[k]
         for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
@@ -928,8 +928,8 @@ def generar_reporte_plantilla(registros):
                 r.co,                  # Col C: No.
                 ahora.year,            # Col D: AÑO
                 mes_reportado,         # Col E: Mes reportado
-                "División Golfo Centro",# Col F: Coordinación / Gerencia
-                r.area,                # Col G: Centro de trabajo (Área del alumno)
+                r.seccion,             # Col F: Zona / Sección real del alumno
+                r.area,                # Col G: Centro de trabajo (Área)
                 r.tipo_apoyo,          # Col H: Tipo
                 r.nombre_alumno,       # Col I: Nombre de la Persona Estudiante
                 r.institucion,         # Col J: Nombre de la institución
@@ -939,8 +939,8 @@ def generar_reporte_plantilla(registros):
                 _monto(r.tipo_remuneracion),  # Col N: Monto del Apoyo
             ]
             for col, v in enumerate(valores, start=3):
-                cell = ws.cell(row=fila, column=col, value=v)
-                cell.fill = openpyxl.styles.PatternFill(fill_type=None)
+                cell = ws.cell(row=fila, column=col)
+                cell.value = v  # Solo asignamos el valor, respetando intacto el diseño y bordes originales
         ws['G36'] = fecha_elab
 
     out = io.BytesIO()
@@ -998,4 +998,3 @@ def descargar_excel_todos():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
-    
