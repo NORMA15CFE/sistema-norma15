@@ -882,8 +882,9 @@ def _copiar_hoja_con_imagenes(wb, origen, titulo, imagenes):
 
 def generar_reporte_plantilla(registros):
     """
-    Genera el reporte oficial de Excel duplicando la plantilla original
-    y preservando al 100% los rangos combinados, bordes, estilos, imágenes y firmas.
+    Genera el reporte oficial de Excel duplicando la plantilla original,
+    asegurando todos los bordes en las celdas de datos y preservando logotipos,
+    cuadros de texto flotantes, firmas y formato original.
     """
     ahora = datetime.now()
     mes_es = MESES_ESP[ahora.strftime('%B')]
@@ -899,8 +900,15 @@ def generar_reporte_plantilla(registros):
     claves = sorted(bloques)
 
     wb_final = openpyxl.Workbook()
-    # Eliminamos la hoja por defecto para construir las correctas
     default_sheet = wb_final.active
+
+    # Estilo de borde delgado para asegurar que todas las celdas de datos tengan bordes visibles
+    borde_celda = Border(
+        left=Side(style='thin', color='000000'),
+        right=Side(style='thin', color='000000'),
+        top=Side(style='thin', color='000000'),
+        bottom=Side(style='thin', color='000000')
+    )
 
     for idx, k in enumerate(claves):
         # Cargamos la plantilla limpia para cada hoja
@@ -911,7 +919,7 @@ def generar_reporte_plantilla(registros):
         fin = ini + FILAS_POR_HOJA - 1
         nombre_hoja = f'CO {ini}-{fin}'
 
-        # Llenar datos de los alumnos en este bloque (Filas 15 a 34)
+        # Llenar datos de los alumnos en este bloque (Filas 15 a 34) y aplicar bordes
         for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
             fila = FILA_INICIAL + i
             valores = [
@@ -929,17 +937,21 @@ def generar_reporte_plantilla(registros):
                 _monto(r.tipo_remuneracion),  # Col N: Monto del Apoyo
             ]
             for col_idx, v in enumerate(valores, start=3):
-                ws_temp.cell(row=fila, column=col_idx, value=v)
+                cell = ws_temp.cell(row=fila, column=col_idx, value=v)
+                cell.border = borde_celda  # Forzamos que tenga todos sus bordes negros
 
         # Asignar fecha de elaboración en la celda G36
         ws_temp['G36'] = fecha_elab
 
-        # Seleccionar la hoja destino (la primera usa la por defecto, las siguientes se crean)
+        # Seleccionar la hoja destino
         if idx == 0:
             ws_target = default_sheet
             ws_target.title = nombre_hoja
         else:
             ws_target = wb_final.create_sheet(title=nombre_hoja)
+
+        # Habilitar líneas de cuadrícula visibles en Excel
+        ws_target.views.sheetView[0].showGridLines = True
 
         # Copiar contenido, estilos y anchos de columna de ws_temp a ws_target
         for row in ws_temp.iter_rows():
@@ -947,7 +959,10 @@ def generar_reporte_plantilla(registros):
                 target_cell = ws_target.cell(row=cell.row, column=cell.column, value=cell.value)
                 if cell.has_style:
                     target_cell.font = copy.copy(cell.font)
-                    target_cell.border = copy.copy(cell.border)
+                    if cell.row < FILA_INICIAL or cell.row > 34:
+                        target_cell.border = copy.copy(cell.border)
+                    else:
+                        target_cell.border = borde_celda
                     target_cell.fill = copy.copy(cell.fill)
                     target_cell.number_format = cell.number_format
                     target_cell.alignment = copy.copy(cell.alignment)
@@ -960,11 +975,11 @@ def generar_reporte_plantilla(registros):
         for row_idx, row_dim in ws_temp.row_dimensions.items():
             ws_target.row_dimensions[row_idx].height = row_dim.height
 
-        # COPIAR LOS RANGOS COMBINADOS (Crucial para que C10:N11 y firmas no se rompan)
+        # Copiar rangos combinados
         for rng in ws_temp.merged_cells.ranges:
             ws_target.merge_cells(str(rng))
 
-        # Copiar imágenes y logotipos
+        # Copiar imágenes, logotipos y cuadros de texto flotantes
         for img in ws_temp._images:
             ws_target.add_image(copy.deepcopy(img))
 
@@ -972,7 +987,6 @@ def generar_reporte_plantilla(registros):
     wb_final.save(out)
     out.seek(0)
     return out
-
 
 @app.route('/descargar_excel')
 def descargar_excel():
