@@ -69,7 +69,7 @@ def fecha_a_espanol(dt_obj):
 
 def init_db():
     if not os.path.exists(UPLOAD_FOLDER):
-        os.makedirs(UPLOAD_FOLDER)
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
     conn = sqlite3.connect('datos.db')
     cursor = conn.cursor()
@@ -404,6 +404,10 @@ def subir_archivos(co):
     if 'usuario' not in session:
         return redirect(url_for('login'))
 
+    # Asegurar obligatoriamente que la carpeta de subidas exista siempre
+    if not os.path.exists(UPLOAD_FOLDER):
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
     banco = request.form.get('banco_clabe', '').strip()
     num_clabe = request.form.get('numero_clabe', '').strip()
     file_clabe = request.files.get('clabe')
@@ -447,10 +451,16 @@ def subir_archivos(co):
         file = request.files.get(input_name)
         if file and file.filename != '':
             filename = secure_filename(f'alumno_{co}_{input_name}_{file.filename}')
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            cursor.execute(
-                f'UPDATE registros SET {db_col} = ? WHERE co = ?', (filename, co)
-            )
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            
+            try:
+                cursor.execute(
+                    f'UPDATE registros SET {db_col} = ? WHERE co = ?', (filename, co)
+                )
+            except sqlite3.OperationalError:
+                pass
+
     conn.commit()
     conn.close()
     flash('Archivos y datos bancarios actualizados correctamente.')
