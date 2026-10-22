@@ -880,128 +880,239 @@ def _copiar_hoja_con_imagenes(wb, origen, titulo, imagenes):
     return nueva
 
 
+def _restaurar_dibujos_plantilla(xlsx_bytes):
+    """
+    Restaura los dibujos originales de la plantilla dentro del XLSX generado.
+    Esto conserva las formas/cuadros de texto que openpyxl no maneja bien,
+    además de logotipos e imágenes.
+    """
+    from xml.etree import ElementTree as ET
+
+    plantilla = PLANTILLA_REPORTE
+    if not os.path.exists(plantilla):
+        xlsx_bytes.seek(0)
+        return xlsx_bytes
+
+    with zipfile.ZipFile(plantilla, "r") as z_tpl:
+        plantilla_archivos = {n: z_tpl.read(n) for n in z_tpl.namelist()}
+
+    with zipfile.ZipFile(xlsx_bytes, "r") as z_out:
+        salida_archivos = {n: z_out.read(n) for n in z_out.namelist()}
+
+    # El dibujo original contiene los logotipos y las formas/cuadros de texto.
+    dibujo_original = plantilla_archivos.get("xl/drawings/drawing1.xml")
+    relaciones_dibujo_originales = plantilla_archivos.get(
+        "xl/drawings/_rels/drawing1.xml.rels"
+    )
+    if not dibujo_original or not relaciones_dibujo_originales:
+        xlsx_bytes.seek(0)
+        return xlsx_bytes
+
+    NS_MAIN = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    NS_REL_DOC = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+    NS_REL_PKG = "http://schemas.openxmlformats.org/package/2006/relationships"
+    NS_CT = "http://schemas.openxmlformats.org/package/2006/content-types"
+
+    ET.register_namespace("", NS_MAIN)
+    ET.register_namespace("r", NS_REL_DOC)
+
+    # Encuentra todas las hojas que se generaron.
+    sheet_paths = sorted(
+        [n for n in salida_archivos
+         if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n)],
+        key=lambda n: int(re.search(r"sheet(\d+)\.xml$", n).group(1))
+    )
+
+    # Copia las imágenes originales de la plantilla al paquete de salida.
+    for nombre, contenido in plantilla_archivos.items():
+        if nombre.startswith("xl/media/"):
+            salida_archivos[nombre] = contenido
+
+    for sheet_path in sheet_paths:
+        numero_hoja = int(re.search(r"sheet(\d+)\.xml$", sheet_path).group(1))
+        drawing_path = f"xl/drawings/drawing{numero_hoja}.xml"
+        drawing_rels_path = f"xl/drawings/_rels/drawing{numero_hoja}.xml.rels"
+        sheet_rels_path = f"xl/worksheets/_rels/sheet{numero_hoja}.xml.rels"
+
+        # Restaura el dibujo completo original, incluidos los cuadros de texto.
+        salida_archivos[drawing_path] = dibujo_original
+        salida_archivos[drawing_rels_path] = relaciones_dibujo_originales
+
+        # Garantiza que cada hoja apunte a su propio dibujo.
+        if sheet_rels_path in salida_archivos:
+            rel_root = ET.fromstring(salida_archivos[sheet_rels_path])
+        else:
+            rel_root = ET.Element(f"{{{NS_REL_PKG}}}Relationships")
+
+        dibujo_rel = None
+        for rel in rel_root.findall(f"{{{NS_REL_PKG}}}Relationship"):
+            if rel.attrib.get("Type", "").endswith("/drawing"):
+                dibujo_rel = rel
+                break
+
+        if dibujo_rel is None:
+            ids = []
+            for rel in rel_root.findall(f"{{{NS_REL_PKG}}}Relationship"):
+                match = re.fullmatch(r"rId(\d+)", rel.attrib.get("Id", ""))
+                if match:
+                    ids.append(int(match.group(1)))
+            nuevo_id = f"rId{max(ids, default=0) + 1}"
+            dibujo_rel = ET.SubElement(
+                rel_root, f"{{{NS_REL_PKG}}}Relationship",
+                {
+                    "Id": nuevo_id,
+                    "Type": "http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing",
+                    "Target": f"../drawings/drawing{numero_hoja}.xml",
+                }
+            )
+        else:
+            dibujo_rel.set("Target", f"../drawings/drawing{numero_hoja}.xml")
+            nuevo_id = dibujo_rel.attrib["Id"]
+
+        salida_archivos[sheet_rels_path] = ET.tostring(
+            rel_root, encoding="utf-8", xml_declaration=True
+        )
+
+        # Añade la referencia al dibujo en el XML de la hoja si aún no existe.
+        sheet_root = ET.fromstring(salida_archivos[sheet_path])
+        ya_existe = sheet_root.find(f"{{{NS_MAIN}}}drawing")
+        if ya_existe is None:
+            drawing_element = ET.Element(
+                f"{{{NS_MAIN}}}drawing",
+                {f"{{{NS_REL_DOC}}}id": nuevo_id}
+            )
+            # La etiqueta drawing debe ir antes de legacyDrawing/extLst.
+            insertar_antes = None
+            for child in list(sheet_root):
+                if child.tag in (
+                    f"{{{NS_MAIN}}}legacyDrawing",
+                    f"{{{NS_MAIN}}}legacyDrawingHF",
+                    f"{{{NS_MAIN}}}picture",
+                    f"{{{NS_MAIN}}}oleObjects",
+                    f"{{{NS_MAIN}}}controls",
+                    f"{{{NS_MAIN}}}webPublishItems",
+                    f"{{{NS_MAIN}}}tableParts",
+                    f"{{{NS_MAIN}}}extLst",
+                ):
+                    insertar_antes = child
+                    break
+            if insertar_antes is None:
+                sheet_root.append(drawing_element)
+            else:
+                sheet_root.insert(list(sheet_root).index(insertar_antes), drawing_element)
+        else:
+            ya_existe.set(f"{{{NS_REL_DOC}}}id", nuevo_id)
+
+        salida_archivos[sheet_path] = ET.tostring(
+            sheet_root, encoding="utf-8", xml_declaration=True
+        )
+
+    # Asegura que los dibujos adicionales estén declarados en Content_Types.
+    ct_path = "[Content_Types].xml"
+    if ct_path in salida_archivos:
+        ct_root = ET.fromstring(salida_archivos[ct_path])
+        for sheet_path in sheet_paths:
+            numero_hoja = int(re.search(r"sheet(\d+)\.xml$", sheet_path).group(1))
+            part_name = f"/xl/drawings/drawing{numero_hoja}.xml"
+            encontrado = any(
+                item.tag == f"{{{NS_CT}}}Override"
+                and item.attrib.get("PartName") == part_name
+                for item in list(ct_root)
+            )
+            if not encontrado:
+                ET.SubElement(
+                    ct_root, f"{{{NS_CT}}}Override",
+                    {
+                        "PartName": part_name,
+                        "ContentType": "application/vnd.openxmlformats-officedocument.drawing+xml",
+                    }
+                )
+        salida_archivos[ct_path] = ET.tostring(
+            ct_root, encoding="utf-8", xml_declaration=True
+        )
+
+    resultado = io.BytesIO()
+    with zipfile.ZipFile(resultado, "w", zipfile.ZIP_DEFLATED) as z_final:
+        for nombre, contenido in salida_archivos.items():
+            z_final.writestr(nombre, contenido)
+
+    resultado.seek(0)
+    return resultado
+
+
 def generar_reporte_plantilla(registros):
     """
-    Genera el reporte oficial de Excel duplicando la plantilla original,
-    garantizando el fondo gris exacto en encabezados, bordes completos en celdas
-    de datos (15-34), y preservando logotipos, firmas y cuadros de texto.
+    Genera el reporte desde la plantilla oficial, conservando formatos,
+    celdas combinadas, anchos, alturas y los dibujos/cuadros de texto.
+    Se crea una hoja por cada bloque de 20 registros.
     """
     ahora = datetime.now()
     mes_es = MESES_ESP[ahora.strftime('%B')]
     mes_reportado = mes_es.upper()
     fecha_elab = f"Xalapa, Ver. a {ahora.day} de {mes_es} del {ahora.year}"
 
-    # Agrupar por bloques de 20 alumnos (CO 1-20, 21-40, etc.)
     bloques = {}
-    for r in registros:
+    for r in sorted(registros, key=lambda x: x.co):
         bloques.setdefault((r.co - 1) // FILAS_POR_HOJA, []).append(r)
     if not bloques:
         bloques = {0: []}
     claves = sorted(bloques)
 
-    wb_final = openpyxl.Workbook()
-    default_sheet = wb_final.active
-
-    # Definir borde completo (negro delgado por los 4 lados) para las celdas de datos (filas 15 a 34)
-    borde_completo_datos = Border(
-        left=Side(style='thin', color='000000'),
-        right=Side(style='thin', color='000000'),
-        top=Side(style='thin', color='000000'),
-        bottom=Side(style='thin', color='000000')
-    )
+    # Abrir directamente la plantilla: no crear un libro vacío.
+    wb_final = openpyxl.load_workbook(PLANTILLA_REPORTE)
+    ws_plantilla = wb_final.active
+    ws_plantilla.title = f"CO {claves[0] * FILAS_POR_HOJA + 1}-{(claves[0] + 1) * FILAS_POR_HOJA}"
 
     for idx, k in enumerate(claves):
-        wb_temp = openpyxl.load_workbook(PLANTILLA_REPORTE)
-        ws_temp = wb_temp.active
-        
         ini = k * FILAS_POR_HOJA + 1
         fin = ini + FILAS_POR_HOJA - 1
-        nombre_hoja = f'CO {ini}-{fin}'
+        nombre_hoja = f"CO {ini}-{fin}"
 
-        # Llenar datos de los alumnos en este bloque (Filas 15 a 34)
+        if idx == 0:
+            ws = ws_plantilla
+            ws.title = nombre_hoja
+        else:
+            # Copia estilos, celdas combinadas y dimensiones de la plantilla.
+            ws = wb_final.copy_worksheet(ws_plantilla)
+            ws.title = nombre_hoja
+
+        # Limpiar solamente los valores; no tocar fondos, bordes ni formatos.
+        for fila in range(FILA_INICIAL, FILA_INICIAL + FILAS_POR_HOJA):
+            for col in range(3, 15):  # C:N
+                ws.cell(row=fila, column=col).value = None
+
         for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
             fila = FILA_INICIAL + i
             valores = [
-                r.co,                  # Col C: No.
-                ahora.year,            # Col D: AÑO
-                mes_reportado,         # Col E: Mes reportado
-                r.seccion,             # Col F: Zona / Sección real del alumno
-                r.area,                # Col G: Centro de trabajo (Área)
-                r.tipo_apoyo,          # Col H: Tipo
-                r.nombre_alumno,       # Col I: Nombre de la Persona Estudiante
-                r.institucion,         # Col J: Nombre de la institución
-                r.carrera,             # Col K: Carrera
-                _fecha_corta(r.fecha_inicio), # Col L: Fecha de Inicio
-                _fecha_corta(r.fecha_fin),    # Col M: Fecha de conclusión
-                _monto(r.tipo_remuneracion),  # Col N: Monto del Apoyo
+                r.co,
+                ahora.year,
+                mes_reportado,
+                r.seccion,
+                r.area,
+                r.tipo_apoyo,
+                r.nombre_alumno,
+                r.institucion,
+                r.carrera,
+                _fecha_corta(r.fecha_inicio),
+                _fecha_corta(r.fecha_fin),
+                _monto(r.tipo_remuneracion),
             ]
-            for col_idx, v in enumerate(valores, start=3):
-                cell = ws_temp.cell(row=fila, column=col_idx, value=v)
-                # Forzar bordes completos en todas las celdas de datos
-                cell.border = borde_completo_datos
+            for col_idx, valor in enumerate(valores, start=3):
+                ws.cell(row=fila, column=col_idx).value = valor
 
-        # Asegurar el texto superior de Administración y Recursos Humanos en celdas combinadas J2:M4
-        ws_temp.merge_cells('J2:M4')
-        cell_admin = ws_temp['J2']
-        cell_admin.value = "Dirección de Administración\nSubdirección de Recursos Humanos"
-        cell_admin.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
-        cell_admin.font = Font(name='Calibri', size=10, italic=True, color='595959')
+        # La dirección de Administración está en un cuadro de texto de la
+        # plantilla. No se convierte en celdas ni se vuelve a crear.
+        ws["G36"] = fecha_elab
+        ws.sheet_view.showGridLines = True
 
-        # Asignar fecha de elaboración en la celda G36
-        ws_temp['G36'] = fecha_elab
+    salida = io.BytesIO()
+    wb_final.save(salida)
+    salida.seek(0)
 
-        # Seleccionar la hoja destino
-        if idx == 0:
-            ws_target = default_sheet
-            ws_target.title = nombre_hoja
-        else:
-            ws_target = wb_final.create_sheet(title=nombre_hoja)
+    # openpyxl no preserva todos los cuadros de texto de Excel al guardar.
+    # Reinyectar los dibujos XML originales evita que desaparezcan.
+    return _restaurar_dibujos_plantilla(salida)
 
-        ws_target.views.sheetView[0].showGridLines = True
-
-        # Copiar contenido, estilos y asegurar fondo gris en fila 14 y bordes en filas 15-34
-        for row in ws_temp.iter_rows():
-            for cell in row:
-                target_cell = ws_target.cell(row=cell.row, column=cell.column, value=cell.value)
-                if cell.has_style:
-                    target_cell.font = copy.copy(cell.font)
-                    target_cell.number_format = cell.number_format
-                    target_cell.alignment = copy.copy(cell.alignment)
-                    
-                    # Si es la fila de encabezados (14), preservamos su fondo gris original
-                    if cell.row == 14:
-                        target_cell.fill = openpyxl.styles.PatternFill(start_color="747474", end_color="747474", fill_type="solid")
-                        target_cell.border = copy.copy(cell.border)
-                    # Si son filas de datos (15 a 34), aplicamos borde completo
-                    elif FILA_INICIAL <= cell.row <= 34:
-                        target_cell.border = borde_completo_datos
-                        target_cell.fill = copy.copy(cell.fill)
-                    else:
-                        target_cell.border = copy.copy(cell.border)
-                        target_cell.fill = copy.copy(cell.fill)
-
-        # Copiar anchos de columna y alturas de fila
-        for col_letter, col_dim in ws_temp.column_dimensions.items():
-            ws_target.column_dimensions[col_letter].width = col_dim.width
-
-        for row_idx, row_dim in ws_temp.row_dimensions.items():
-            ws_target.row_dimensions[row_idx].height = row_dim.height
-
-        # Copiar rangos combinados
-        for rng in ws_temp.merged_cells.ranges:
-            try:
-                ws_target.merge_cells(str(rng))
-            except:
-                pass
-
-        # Copiar logotipos / imágenes
-        for img in ws_temp._images:
-            ws_target.add_image(copy.deepcopy(img))
-
-    out = io.BytesIO()
-    wb_final.save(out)
-    out.seek(0)
-    return out
 
 @app.route('/descargar_excel')
 def descargar_excel():
