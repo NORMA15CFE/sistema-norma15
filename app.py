@@ -883,8 +883,8 @@ def _copiar_hoja_con_imagenes(wb, origen, titulo, imagenes):
 def generar_reporte_plantilla(registros):
     """
     Genera el reporte oficial de Excel duplicando la plantilla original,
-    asegurando todos los bordes en las celdas de datos y preservando logotipos,
-    cuadros de texto flotantes, firmas y formato original.
+    garantizando el fondo gris exacto en encabezados, bordes completos en celdas
+    de datos (15-34), y preservando logotipos, firmas y cuadros de texto.
     """
     ahora = datetime.now()
     mes_es = MESES_ESP[ahora.strftime('%B')]
@@ -902,8 +902,8 @@ def generar_reporte_plantilla(registros):
     wb_final = openpyxl.Workbook()
     default_sheet = wb_final.active
 
-    # Estilo de borde delgado para asegurar que todas las celdas de datos tengan bordes visibles
-    borde_celda = Border(
+    # Definir borde completo (negro delgado por los 4 lados) para las celdas de datos (filas 15 a 34)
+    borde_completo_datos = Border(
         left=Side(style='thin', color='000000'),
         right=Side(style='thin', color='000000'),
         top=Side(style='thin', color='000000'),
@@ -911,7 +911,6 @@ def generar_reporte_plantilla(registros):
     )
 
     for idx, k in enumerate(claves):
-        # Cargamos la plantilla limpia para cada hoja
         wb_temp = openpyxl.load_workbook(PLANTILLA_REPORTE)
         ws_temp = wb_temp.active
         
@@ -919,7 +918,7 @@ def generar_reporte_plantilla(registros):
         fin = ini + FILAS_POR_HOJA - 1
         nombre_hoja = f'CO {ini}-{fin}'
 
-        # Llenar datos de los alumnos en este bloque (Filas 15 a 34) y aplicar bordes
+        # Llenar datos de los alumnos en este bloque (Filas 15 a 34)
         for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
             fila = FILA_INICIAL + i
             valores = [
@@ -938,7 +937,15 @@ def generar_reporte_plantilla(registros):
             ]
             for col_idx, v in enumerate(valores, start=3):
                 cell = ws_temp.cell(row=fila, column=col_idx, value=v)
-                cell.border = borde_celda  # Forzamos que tenga todos sus bordes negros
+                # Forzar bordes completos en todas las celdas de datos
+                cell.border = borde_completo_datos
+
+        # Asegurar el texto superior de Administración y Recursos Humanos en celdas combinadas J2:M4
+        ws_temp.merge_cells('J2:M4')
+        cell_admin = ws_temp['J2']
+        cell_admin.value = "Dirección de Administración\nSubdirección de Recursos Humanos"
+        cell_admin.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        cell_admin.font = Font(name='Calibri', size=10, italic=True, color='595959')
 
         # Asignar fecha de elaboración en la celda G36
         ws_temp['G36'] = fecha_elab
@@ -950,36 +957,44 @@ def generar_reporte_plantilla(registros):
         else:
             ws_target = wb_final.create_sheet(title=nombre_hoja)
 
-        # Habilitar líneas de cuadrícula visibles en Excel
         ws_target.views.sheetView[0].showGridLines = True
 
-        # Copiar contenido, estilos y anchos de columna de ws_temp a ws_target
+        # Copiar contenido, estilos y asegurar fondo gris en fila 14 y bordes en filas 15-34
         for row in ws_temp.iter_rows():
             for cell in row:
                 target_cell = ws_target.cell(row=cell.row, column=cell.column, value=cell.value)
                 if cell.has_style:
                     target_cell.font = copy.copy(cell.font)
-                    if cell.row < FILA_INICIAL or cell.row > 34:
-                        target_cell.border = copy.copy(cell.border)
-                    else:
-                        target_cell.border = borde_celda
-                    target_cell.fill = copy.copy(cell.fill)
                     target_cell.number_format = cell.number_format
                     target_cell.alignment = copy.copy(cell.alignment)
+                    
+                    # Si es la fila de encabezados (14), preservamos su fondo gris original
+                    if cell.row == 14:
+                        target_cell.fill = openpyxl.styles.PatternFill(start_color="747474", end_color="747474", fill_type="solid")
+                        target_cell.border = copy.copy(cell.border)
+                    # Si son filas de datos (15 a 34), aplicamos borde completo
+                    elif FILA_INICIAL <= cell.row <= 34:
+                        target_cell.border = borde_completo_datos
+                        target_cell.fill = copy.copy(cell.fill)
+                    else:
+                        target_cell.border = copy.copy(cell.border)
+                        target_cell.fill = copy.copy(cell.fill)
 
-        # Copiar anchos de columna
+        # Copiar anchos de columna y alturas de fila
         for col_letter, col_dim in ws_temp.column_dimensions.items():
             ws_target.column_dimensions[col_letter].width = col_dim.width
 
-        # Copiar alturas de fila
         for row_idx, row_dim in ws_temp.row_dimensions.items():
             ws_target.row_dimensions[row_idx].height = row_dim.height
 
         # Copiar rangos combinados
         for rng in ws_temp.merged_cells.ranges:
-            ws_target.merge_cells(str(rng))
+            try:
+                ws_target.merge_cells(str(rng))
+            except:
+                pass
 
-        # Copiar imágenes, logotipos y cuadros de texto flotantes
+        # Copiar logotipos / imágenes
         for img in ws_temp._images:
             ws_target.add_image(copy.deepcopy(img))
 
