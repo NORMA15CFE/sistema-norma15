@@ -1100,45 +1100,76 @@ def generar_reporte_plantilla(registros):
             for col_idx, valor in enumerate(valores, start=3):
                 ws.cell(row=fila, column=col_idx).value = valor
 
-        # Aplicar explícitamente el formato oficial de la tabla.
-        # Esto evita que Excel muestre solo las líneas de cuadrícula grises
-        # si algún estilo de la plantilla se pierde al generar/guardar el libro.
+        # FORMATO OFICIAL: encabezado gris, bordes negros y tabla completa.
+        # Se aplican los estilos directamente a las celdas para que no dependan
+        # de las líneas de cuadrícula que Excel muestra en pantalla.
         from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
+        from copy import copy
 
         gris_encabezado = PatternFill(fill_type="solid", fgColor="FF747474")
-        linea_negra = Side(style="thin", color="FF000000")
-        borde_tabla = Border(
-            left=linea_negra,
-            right=linea_negra,
-            top=linea_negra,
-            bottom=linea_negra,
-        )
+        negro = Side(style="thin", color="FF000000")
+        borde_celda = Border(left=negro, right=negro, top=negro, bottom=negro)
 
-        # Encabezados: C14:N14 (No., Año, Mes, Coordinación, etc.).
+        # Encabezados oficiales: C14:N14.
         for col in range(3, 15):
             celda = ws.cell(row=14, column=col)
-            celda.fill = copy.copy(gris_encabezado)
-            celda.border = copy.copy(borde_tabla)
+            celda.fill = copy(gris_encabezado)
+            celda.border = copy(borde_celda)
             celda.alignment = Alignment(
                 horizontal="center", vertical="center", wrap_text=True
             )
-            celda.font = copy.copy(celda.font)
             celda.font = Font(
-                name=celda.font.name or "Arial",
-                size=celda.font.sz or 9,
-                bold=True,
-                italic=celda.font.italic,
-                color=celda.font.color,
+                name="Arial", size=8, bold=True, color="FF000000"
             )
 
-        # Filas de datos: bordes negros continuos, sin cambiar los valores.
-        for fila in range(FILA_INICIAL, FILA_INICIAL + FILAS_POR_HOJA):
+        # Tabla completa, incluidos todos los renglones vacíos para mantener
+        # las líneas negras aunque haya menos de 20 registros.
+        for fila in range(15, 35):
             for col in range(3, 15):
                 celda = ws.cell(row=fila, column=col)
-                celda.border = copy.copy(borde_tabla)
+                celda.border = copy(borde_celda)
                 celda.alignment = Alignment(
                     horizontal="center", vertical="center", wrap_text=True
                 )
+                if celda.value is not None:
+                    celda.font = Font(name="Arial", size=8, color="FF000000")
+
+        # Marco del encabezado superior y del título del reporte.
+        # Se dibujan los bordes exteriores sin alterar los cuadros de texto.
+        for fila in range(2, 7):
+            for col in range(3, 15):
+                celda = ws.cell(row=fila, column=col)
+                celda.border = Border(
+                    left=negro if col == 3 else Side(style=None),
+                    right=negro if col == 14 else Side(style=None),
+                    top=negro if fila == 2 else Side(style=None),
+                    bottom=negro if fila == 6 else Side(style=None),
+                )
+
+        for fila in range(10, 12):
+            for col in range(3, 15):
+                celda = ws.cell(row=fila, column=col)
+                celda.border = Border(
+                    left=negro if col == 3 else Side(style=None),
+                    right=negro if col == 14 else Side(style=None),
+                    top=negro if fila == 10 else Side(style=None),
+                    bottom=negro if fila == 11 else Side(style=None),
+                )
+
+        # Preparar impresión horizontal, ajustada al ancho de una página.
+        ws.sheet_view.showGridLines = False
+        ws.page_setup.orientation = "landscape"
+        ws.page_setup.fitToWidth = 1
+        ws.page_setup.fitToHeight = 0
+        ws.sheet_properties.pageSetUpPr.fitToPage = True
+        ws.print_area = "C2:N44"
+        ws.print_title_rows = "14:14"
+        ws.page_margins.left = 0.2
+        ws.page_margins.right = 0.2
+        ws.page_margins.top = 0.35
+        ws.page_margins.bottom = 0.35
+        ws.page_margins.header = 0.15
+        ws.page_margins.footer = 0.15
 
         # La dirección de Administración está en un cuadro de texto de la
         # plantilla. No se convierte en celdas ni se vuelve a crear.
@@ -1203,4 +1234,3 @@ def descargar_excel_todos():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
-
