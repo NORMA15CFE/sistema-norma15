@@ -50,8 +50,11 @@ cloudinary.config(
 # CONFIGURACIÓN DE BASE DE DATOS (SQLALCHEMY)
 # ==========================================
 DATABASE_URL = os.environ.get('DATABASE_URL')
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+if DATABASE_URL:
+    if DATABASE_URL.startswith("postgres://"):
+        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+psycopg2://", 1)
+    elif DATABASE_URL.startswith("postgresql://"):
+        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = DATABASE_URL or 'sqlite:///datos.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -396,7 +399,6 @@ def subir_archivos(co):
     for input_name, db_col in campos_archivos.items():
         file = request.files.get(input_name)
         if file and file.filename != '':
-            # Subida a Cloudinary de forma permanente
             upload_result = cloudinary.uploader.upload(file, resource_type="auto")
             file_url = upload_result.get('secure_url')
             setattr(alumno, db_col, file_url)
@@ -434,7 +436,6 @@ def eliminar_archivo(co, campo):
     if alumno:
         url_archivo = getattr(alumno, db_col)
         if url_archivo:
-            # Si es un archivo local antiguo, intenta borrarlo del disco
             if not url_archivo.startswith('http'):
                 filepath = os.path.join(app.config['UPLOAD_FOLDER'], url_archivo)
                 if os.path.exists(filepath):
@@ -501,10 +502,6 @@ def generar_orden_pago(co):
     f_inicio_str = r.fecha_inicio
     f_fin_str = r.fecha_fin
     zona = r.seccion
-
-    rep_row = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_seleccionado).first()
-    recibo_alum_row = ReciboAlumnoMensual.query.filter_by(alumno_co=co, mes_anio=mes_seleccionado).first()
-    recibo_emp_row = ReciboPagoMensual.query.filter_by(alumno_co=co, mes_anio=mes_seleccionado).first()
 
     try:
         dt_inicio = datetime.strptime(f_inicio_str, '%Y-%m-%d')
@@ -700,7 +697,6 @@ def subir_oficio_zona():
     file = request.files.get('archivo_oficio_zona')
     if file and file.filename != '':
         upload_result = cloudinary.uploader.upload(file, resource_type="auto")
-        # Opcional: Puedes guardar la URL en una estructura si gustas, o mantenerlo así
         flash('Oficio subido a la nube correctamente.')
     return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona_destino))
 
