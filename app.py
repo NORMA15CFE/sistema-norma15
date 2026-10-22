@@ -882,8 +882,8 @@ def _copiar_hoja_con_imagenes(wb, origen, titulo, imagenes):
 
 def generar_reporte_plantilla(registros):
     """
-    Genera el reporte oficial de Excel duplicando la plantilla física original
-    para conservar intactos cuadros de texto, logotipos, bordes, líneas de firma y formato.
+    Genera el reporte oficial de Excel duplicando la plantilla original
+    y preservando al 100% los rangos combinados, bordes, estilos, imágenes y firmas.
     """
     ahora = datetime.now()
     mes_es = MESES_ESP[ahora.strftime('%B')]
@@ -898,21 +898,20 @@ def generar_reporte_plantilla(registros):
         bloques = {0: []}
     claves = sorted(bloques)
 
-    # Creamos un workbook principal vacío para ensamblar las hojas
     wb_final = openpyxl.Workbook()
-    # Removemos la hoja por defecto
+    # Eliminamos la hoja por defecto para construir las correctas
     default_sheet = wb_final.active
 
     for idx, k in enumerate(claves):
-        # Cargamos una copia limpia DIRECTAMENTE del archivo de plantilla original por cada bloque
+        # Cargamos la plantilla limpia para cada hoja
         wb_temp = openpyxl.load_workbook(PLANTILLA_REPORTE)
         ws_temp = wb_temp.active
         
         ini = k * FILAS_POR_HOJA + 1
         fin = ini + FILAS_POR_HOJA - 1
-        ws_temp.title = f'CO {ini}-{fin}'
+        nombre_hoja = f'CO {ini}-{fin}'
 
-        # Llenar los datos de los alumnos en este bloque (Filas 15 a 34)
+        # Llenar datos de los alumnos en este bloque (Filas 15 a 34)
         for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
             fila = FILA_INICIAL + i
             valores = [
@@ -935,35 +934,39 @@ def generar_reporte_plantilla(registros):
         # Asignar fecha de elaboración en la celda G36
         ws_temp['G36'] = fecha_elab
 
-        # Copiamos esta hoja configurada al workbook final
+        # Seleccionar la hoja destino (la primera usa la por defecto, las siguientes se crean)
         if idx == 0:
-            default_sheet.title = ws_temp.title
-            # Copiar celdas y propiedades de ws_temp a default_sheet
-            for row in ws_temp.iter_rows():
-                for cell in row:
-                    target_cell = default_sheet.cell(row=cell.row, column=cell.column, value=cell.value)
-                    if cell.has_style:
-                        target_cell.font = copy.copy(cell.font)
-                        target_cell.border = copy.copy(cell.border)
-                        target_cell.fill = copy.copy(cell.fill)
-                        target_cell.number_format = cell.number_format
-                        target_cell.alignment = copy.copy(cell.alignment)
-            # Copiar imágenes / logos si los hay
-            for img in ws_temp._images:
-                default_sheet.add_image(copy.deepcopy(img))
+            ws_target = default_sheet
+            ws_target.title = nombre_hoja
         else:
-            new_sheet = wb_final.create_sheet(title=ws_temp.title)
-            for row in ws_temp.iter_rows():
-                for cell in row:
-                    target_cell = new_sheet.cell(row=cell.row, column=cell.column, value=cell.value)
-                    if cell.has_style:
-                        target_cell.font = copy.copy(cell.font)
-                        target_cell.border = copy.copy(cell.border)
-                        target_cell.fill = copy.copy(cell.fill)
-                        target_cell.number_format = cell.number_format
-                        target_cell.alignment = copy.copy(cell.alignment)
-            for img in ws_temp._images:
-                new_sheet.add_image(copy.deepcopy(img))
+            ws_target = wb_final.create_sheet(title=nombre_hoja)
+
+        # Copiar contenido, estilos y anchos de columna de ws_temp a ws_target
+        for row in ws_temp.iter_rows():
+            for cell in row:
+                target_cell = ws_target.cell(row=cell.row, column=cell.column, value=cell.value)
+                if cell.has_style:
+                    target_cell.font = copy.copy(cell.font)
+                    target_cell.border = copy.copy(cell.border)
+                    target_cell.fill = copy.copy(cell.fill)
+                    target_cell.number_format = cell.number_format
+                    target_cell.alignment = copy.copy(cell.alignment)
+
+        # Copiar anchos de columna
+        for col_letter, col_dim in ws_temp.column_dimensions.items():
+            ws_target.column_dimensions[col_letter].width = col_dim.width
+
+        # Copiar alturas de fila
+        for row_idx, row_dim in ws_temp.row_dimensions.items():
+            ws_target.row_dimensions[row_idx].height = row_dim.height
+
+        # COPIAR LOS RANGOS COMBINADOS (Crucial para que C10:N11 y firmas no se rompan)
+        for rng in ws_temp.merged_cells.ranges:
+            ws_target.merge_cells(str(rng))
+
+        # Copiar imágenes y logotipos
+        for img in ws_temp._images:
+            ws_target.add_image(copy.deepcopy(img))
 
     out = io.BytesIO()
     wb_final.save(out)
