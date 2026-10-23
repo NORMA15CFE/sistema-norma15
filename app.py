@@ -92,9 +92,10 @@ MESES_ESP = {
 }
 
 # ==========================================
-# CONFIGURACIÓN DEL REPORTE EXCEL (PLANTILLA)
+# CONFIGURACIÓN DEL REPORTE EXCEL (PLANTILLAS)
 # ==========================================
 PLANTILLA_REPORTE = 'plantillareporte_norma15.xlsx'
+PLANTILLA_TODOS = 'plantillareporte_todos.xlsx'
 FILAS_POR_HOJA = 20
 FILA_INICIAL = 15
 
@@ -869,20 +870,14 @@ def _monto(remuneracion):
     return f'${m.group(1)}' if m else 'Título gratuito'
 
 
-def _restaurar_dibujos_plantilla(xlsx_bytes):
-    """
-    Restaura los dibujos originales de la plantilla dentro del XLSX generado.
-    Esto conserva las formas/cuadros de texto que openpyxl no maneja bien,
-    además de logotipos e imágenes.
-    """
+def _restaurar_dibujos_plantilla(xlsx_bytes, archivo_plantilla=PLANTILLA_REPORTE):
     from xml.etree import ElementTree as ET
 
-    plantilla = PLANTILLA_REPORTE
-    if not os.path.exists(plantilla):
+    if not os.path.exists(archivo_plantilla):
         xlsx_bytes.seek(0)
         return xlsx_bytes
 
-    with zipfile.ZipFile(plantilla, "r") as z_tpl:
+    with zipfile.ZipFile(archivo_plantilla, "r") as z_tpl:
         plantilla_archivos = {n: z_tpl.read(n) for n in z_tpl.namelist()}
 
     with zipfile.ZipFile(xlsx_bytes, "r") as z_out:
@@ -1021,12 +1016,7 @@ def _restaurar_dibujos_plantilla(xlsx_bytes):
     return resultado
 
 
-def generar_reporte_plantilla(registros):
-    """
-    Genera el reporte desde la plantilla oficial, garantizando el fondo gris en
-    encabezados (fila 14), bordes negros completos en celdas de datos (15-34),
-    y preservando logotipos, cuadros de texto y formato original.
-    """
+def generar_reporte_desde_archivo(registros, archivo_plantilla):
     ahora = datetime.now()
     mes_es = MESES_ESP[ahora.strftime('%B')]
     mes_reportado = mes_es.upper()
@@ -1039,7 +1029,7 @@ def generar_reporte_plantilla(registros):
         bloques = {0: []}
     claves = sorted(bloques)
 
-    wb_final = openpyxl.load_workbook(PLANTILLA_REPORTE)
+    wb_final = openpyxl.load_workbook(archivo_plantilla)
     ws_plantilla = wb_final.active
     ws_plantilla.title = f"CO {claves[0] * FILAS_POR_HOJA + 1}-{(claves[0] + 1) * FILAS_POR_HOJA}"
 
@@ -1059,12 +1049,10 @@ def generar_reporte_plantilla(registros):
             ws = wb_final.copy_worksheet(ws_plantilla)
             ws.title = nombre_hoja
 
-        # Limpiar valores previos en la tabla
         for fila in range(FILA_INICIAL, FILA_INICIAL + FILAS_POR_HOJA):
             for col in range(3, 15):
                 ws.cell(row=fila, column=col).value = None
 
-        # Asignar datos de los alumnos
         for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
             fila = FILA_INICIAL + i
             valores = [
@@ -1084,7 +1072,6 @@ def generar_reporte_plantilla(registros):
             for col_idx, valor in enumerate(valores, start=3):
                 ws.cell(row=fila, column=col_idx).value = valor
 
-        # FORZAR ESTILOS EN ENCABEZADOS (Fila 14): Fondo gris y bordes negros
         for col in range(3, 15):
             celda = ws.cell(row=14, column=col)
             celda.fill = copy.copy(gris_encabezado)
@@ -1092,7 +1079,6 @@ def generar_reporte_plantilla(registros):
             celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             celda.font = Font(name="Arial", size=8, bold=True, color="FF000000")
 
-        # FORZAR BORDES COMPLETOS EN CELDAS DE DATOS (Filas 15 a 34)
         for fila in range(15, 35):
             for col in range(3, 15):
                 celda = ws.cell(row=fila, column=col)
@@ -1101,26 +1087,14 @@ def generar_reporte_plantilla(registros):
                 if celda.value is not None:
                     celda.font = Font(name="Arial", size=8, color="FF000000")
 
-        # Márgenes y configuración de impresión
         ws.sheet_view.showGridLines = True
-        ws.page_setup.orientation = "landscape"
-        ws.page_setup.fitToWidth = 1
-        ws.page_setup.fitToHeight = 0
-        ws.sheet_properties.pageSetUpPr.fitToPage = True
-        ws.print_area = "C2:N44"
-        ws.print_title_rows = "14:14"
-        ws.page_margins.left = 0.2
-        ws.page_margins.right = 0.2
-        ws.page_margins.top = 0.35
-        ws.page_margins.bottom = 0.35
-
         ws["G36"] = fecha_elab
 
     salida = io.BytesIO()
     wb_final.save(salida)
     salida.seek(0)
 
-    return _restaurar_dibujos_plantilla(salida)
+    return _restaurar_dibujos_plantilla(salida, archivo_plantilla)
 
 
 @app.route('/descargar_excel')
@@ -1141,7 +1115,7 @@ def descargar_excel():
     else:
         registros = Registro.query.filter_by(seccion=session['usuario']).order_by(Registro.co.asc()).all()
 
-    output = generar_reporte_plantilla(registros)
+    output = generar_reporte_desde_archivo(registros, PLANTILLA_REPORTE)
     return send_file(
         output,
         as_attachment=True,
@@ -1155,12 +1129,12 @@ def descargar_excel_todos():
     if 'usuario' not in session:
         return redirect(url_for('login'))
 
-    if not os.path.exists(PLANTILLA_REPORTE):
-        flash(f'Error: No se encontró el archivo "{PLANTILLA_REPORTE}".')
+    if not os.path.exists(PLANTILLA_TODOS):
+        flash(f'Error: No se encontró el archivo "{PLANTILLA_TODOS}".')
         return redirect(url_for('dashboard'))
 
     registros = Registro.query.order_by(Registro.co.asc()).all()
-    output = generar_reporte_plantilla(registros)
+    output = generar_reporte_desde_archivo(registros, PLANTILLA_TODOS)
     return send_file(
         output,
         as_attachment=True,
