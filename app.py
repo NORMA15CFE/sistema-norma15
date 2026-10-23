@@ -19,7 +19,7 @@ from flask import (
 from flask_sqlalchemy import SQLAlchemy
 
 import openpyxl
-from openpyxl.styles import Font, Alignment, Border, Side
+from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from openpyxl.cell.cell import MergedCell
 from openpyxl.drawing.image import Image as XLImage
 
@@ -406,7 +406,7 @@ def subir_archivos(co):
     for input_name, db_col in campos_archivos.items():
         file = request.files.get(input_name)
         if file and file.filename != '':
-            upload_result = cloudinary.uploader.upload(file, resource_type="auto")
+            upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
             file_url = upload_result.get('secure_url')
             setattr(alumno, db_col, file_url)
 
@@ -703,7 +703,7 @@ def subir_oficio_zona():
     zona_destino = request.form.get('zona_destino')
     file = request.files.get('archivo_oficio_zona')
     if file and file.filename != '':
-        upload_result = cloudinary.uploader.upload(file, resource_type="auto")
+        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
         flash('Oficio subido a la nube correctamente.')
     return redirect(url_for('gestionar_oficios_zona', zona_destino=zona_destino))
 
@@ -735,7 +735,7 @@ def subir_reporte_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_reporte')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file, resource_type="auto")
+        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
         file_url = upload_result.get('secure_url')
 
         existente = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
@@ -777,7 +777,7 @@ def subir_recibo_alumno_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_recibo_alumno')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file, resource_type="auto")
+        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
         file_url = upload_result.get('secure_url')
 
         existente = ReciboAlumnoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
@@ -819,7 +819,7 @@ def subir_recibo_pago_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_recibo')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file, resource_type="auto")
+        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
         file_url = upload_result.get('secure_url')
 
         existente = ReciboPagoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
@@ -869,17 +869,6 @@ def _monto(remuneracion):
     return f'${m.group(1)}' if m else 'Título gratuito'
 
 
-def _copiar_hoja_con_imagenes(wb, origen, titulo, imagenes):
-    nueva = wb.copy_worksheet(origen)
-    nueva.title = titulo
-    for datos, w, h, anchor in imagenes:
-        copia = XLImage(io.BytesIO(datos))
-        copia.width, copia.height = w, h
-        copia.anchor = copy.deepcopy(anchor)
-        nueva.add_image(copia)
-    return nueva
-
-
 def _restaurar_dibujos_plantilla(xlsx_bytes):
     """
     Restaura los dibujos originales de la plantilla dentro del XLSX generado.
@@ -899,7 +888,6 @@ def _restaurar_dibujos_plantilla(xlsx_bytes):
     with zipfile.ZipFile(xlsx_bytes, "r") as z_out:
         salida_archivos = {n: z_out.read(n) for n in z_out.namelist()}
 
-    # El dibujo original contiene los logotipos y las formas/cuadros de texto.
     dibujo_original = plantilla_archivos.get("xl/drawings/drawing1.xml")
     relaciones_dibujo_originales = plantilla_archivos.get(
         "xl/drawings/_rels/drawing1.xml.rels"
@@ -916,14 +904,12 @@ def _restaurar_dibujos_plantilla(xlsx_bytes):
     ET.register_namespace("", NS_MAIN)
     ET.register_namespace("r", NS_REL_DOC)
 
-    # Encuentra todas las hojas que se generaron.
     sheet_paths = sorted(
         [n for n in salida_archivos
          if re.fullmatch(r"xl/worksheets/sheet\d+\.xml", n)],
         key=lambda n: int(re.search(r"sheet(\d+)\.xml$", n).group(1))
     )
 
-    # Copia las imágenes originales de la plantilla al paquete de salida.
     for nombre, contenido in plantilla_archivos.items():
         if nombre.startswith("xl/media/"):
             salida_archivos[nombre] = contenido
@@ -934,11 +920,9 @@ def _restaurar_dibujos_plantilla(xlsx_bytes):
         drawing_rels_path = f"xl/drawings/_rels/drawing{numero_hoja}.xml.rels"
         sheet_rels_path = f"xl/worksheets/_rels/sheet{numero_hoja}.xml.rels"
 
-        # Restaura el dibujo completo original, incluidos los cuadros de texto.
         salida_archivos[drawing_path] = dibujo_original
         salida_archivos[drawing_rels_path] = relaciones_dibujo_originales
 
-        # Garantiza que cada hoja apunte a su propio dibujo.
         if sheet_rels_path in salida_archivos:
             rel_root = ET.fromstring(salida_archivos[sheet_rels_path])
         else:
@@ -973,7 +957,6 @@ def _restaurar_dibujos_plantilla(xlsx_bytes):
             rel_root, encoding="utf-8", xml_declaration=True
         )
 
-        # Añade la referencia al dibujo en el XML de la hoja si aún no existe.
         sheet_root = ET.fromstring(salida_archivos[sheet_path])
         ya_existe = sheet_root.find(f"{{{NS_MAIN}}}drawing")
         if ya_existe is None:
@@ -981,7 +964,6 @@ def _restaurar_dibujos_plantilla(xlsx_bytes):
                 f"{{{NS_MAIN}}}drawing",
                 {f"{{{NS_REL_DOC}}}id": nuevo_id}
             )
-            # La etiqueta drawing debe ir antes de legacyDrawing/extLst.
             insertar_antes = None
             for child in list(sheet_root):
                 if child.tag in (
@@ -1007,7 +989,6 @@ def _restaurar_dibujos_plantilla(xlsx_bytes):
             sheet_root, encoding="utf-8", xml_declaration=True
         )
 
-    # Asegura que los dibujos adicionales estén declarados en Content_Types.
     ct_path = "[Content_Types].xml"
     if ct_path in salida_archivos:
         ct_root = ET.fromstring(salida_archivos[ct_path])
@@ -1042,9 +1023,9 @@ def _restaurar_dibujos_plantilla(xlsx_bytes):
 
 def generar_reporte_plantilla(registros):
     """
-    Genera el reporte desde la plantilla oficial, conservando formatos,
-    celdas combinadas, anchos, alturas y los dibujos/cuadros de texto.
-    Se crea una hoja por cada bloque de 20 registros.
+    Genera el reporte desde la plantilla oficial, garantizando el fondo gris en
+    encabezados (fila 14), bordes negros completos en celdas de datos (15-34),
+    y preservando logotipos, cuadros de texto y formato original.
     """
     ahora = datetime.now()
     mes_es = MESES_ESP[ahora.strftime('%B')]
@@ -1058,10 +1039,13 @@ def generar_reporte_plantilla(registros):
         bloques = {0: []}
     claves = sorted(bloques)
 
-    # Abrir directamente la plantilla: no crear un libro vacío.
     wb_final = openpyxl.load_workbook(PLANTILLA_REPORTE)
     ws_plantilla = wb_final.active
     ws_plantilla.title = f"CO {claves[0] * FILAS_POR_HOJA + 1}-{(claves[0] + 1) * FILAS_POR_HOJA}"
+
+    gris_encabezado = PatternFill(fill_type="solid", fgColor="FF747474")
+    negro = Side(style="thin", color="FF000000")
+    borde_celda = Border(left=negro, right=negro, top=negro, bottom=negro)
 
     for idx, k in enumerate(claves):
         ini = k * FILAS_POR_HOJA + 1
@@ -1072,15 +1056,15 @@ def generar_reporte_plantilla(registros):
             ws = ws_plantilla
             ws.title = nombre_hoja
         else:
-            # Copia estilos, celdas combinadas y dimensiones de la plantilla.
             ws = wb_final.copy_worksheet(ws_plantilla)
             ws.title = nombre_hoja
 
-        # Limpiar solamente los valores; no tocar fondos, bordes ni formatos.
+        # Limpiar valores previos en la tabla
         for fila in range(FILA_INICIAL, FILA_INICIAL + FILAS_POR_HOJA):
-            for col in range(3, 15):  # C:N
+            for col in range(3, 15):
                 ws.cell(row=fila, column=col).value = None
 
+        # Asignar datos de los alumnos
         for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
             fila = FILA_INICIAL + i
             valores = [
@@ -1100,64 +1084,25 @@ def generar_reporte_plantilla(registros):
             for col_idx, valor in enumerate(valores, start=3):
                 ws.cell(row=fila, column=col_idx).value = valor
 
-        # FORMATO OFICIAL: encabezado gris, bordes negros y tabla completa.
-        # Se aplican los estilos directamente a las celdas para que no dependan
-        # de las líneas de cuadrícula que Excel muestra en pantalla.
-        from openpyxl.styles import PatternFill, Border, Side, Alignment, Font
-        from copy import copy
-
-        gris_encabezado = PatternFill(fill_type="solid", fgColor="FF747474")
-        negro = Side(style="thin", color="FF000000")
-        borde_celda = Border(left=negro, right=negro, top=negro, bottom=negro)
-
-        # Encabezados oficiales: C14:N14.
+        # FORZAR ESTILOS EN ENCABEZADOS (Fila 14): Fondo gris y bordes negros
         for col in range(3, 15):
             celda = ws.cell(row=14, column=col)
             celda.fill = copy(gris_encabezado)
             celda.border = copy(borde_celda)
-            celda.alignment = Alignment(
-                horizontal="center", vertical="center", wrap_text=True
-            )
-            celda.font = Font(
-                name="Arial", size=8, bold=True, color="FF000000"
-            )
+            celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            celda.font = Font(name="Arial", size=8, bold=True, color="FF000000")
 
-        # Tabla completa, incluidos todos los renglones vacíos para mantener
-        # las líneas negras aunque haya menos de 20 registros.
+        # FORZAR BORDES COMPLETOS EN CELDAS DE DATOS (Filas 15 a 34)
         for fila in range(15, 35):
             for col in range(3, 15):
                 celda = ws.cell(row=fila, column=col)
                 celda.border = copy(borde_celda)
-                celda.alignment = Alignment(
-                    horizontal="center", vertical="center", wrap_text=True
-                )
+                celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 if celda.value is not None:
                     celda.font = Font(name="Arial", size=8, color="FF000000")
 
-        # Marco del encabezado superior y del título del reporte.
-        # Se dibujan los bordes exteriores sin alterar los cuadros de texto.
-        for fila in range(2, 7):
-            for col in range(3, 15):
-                celda = ws.cell(row=fila, column=col)
-                celda.border = Border(
-                    left=negro if col == 3 else Side(style=None),
-                    right=negro if col == 14 else Side(style=None),
-                    top=negro if fila == 2 else Side(style=None),
-                    bottom=negro if fila == 6 else Side(style=None),
-                )
-
-        for fila in range(10, 12):
-            for col in range(3, 15):
-                celda = ws.cell(row=fila, column=col)
-                celda.border = Border(
-                    left=negro if col == 3 else Side(style=None),
-                    right=negro if col == 14 else Side(style=None),
-                    top=negro if fila == 10 else Side(style=None),
-                    bottom=negro if fila == 11 else Side(style=None),
-                )
-
-        # Preparar impresión horizontal, ajustada al ancho de una página.
-        ws.sheet_view.showGridLines = False
+        # Márgenes y configuración de impresión
+        ws.sheet_view.showGridLines = True
         ws.page_setup.orientation = "landscape"
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 0
@@ -1168,20 +1113,13 @@ def generar_reporte_plantilla(registros):
         ws.page_margins.right = 0.2
         ws.page_margins.top = 0.35
         ws.page_margins.bottom = 0.35
-        ws.page_margins.header = 0.15
-        ws.page_margins.footer = 0.15
 
-        # La dirección de Administración está en un cuadro de texto de la
-        # plantilla. No se convierte en celdas ni se vuelve a crear.
         ws["G36"] = fecha_elab
-        ws.sheet_view.showGridLines = True
 
     salida = io.BytesIO()
     wb_final.save(salida)
     salida.seek(0)
 
-    # openpyxl no preserva todos los cuadros de texto de Excel al guardar.
-    # Reinyectar los dibujos XML originales evita que desaparezcan.
     return _restaurar_dibujos_plantilla(salida)
 
 
@@ -1234,3 +1172,4 @@ def descargar_excel_todos():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+    
