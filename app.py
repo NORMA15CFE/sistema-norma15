@@ -1099,67 +1099,51 @@ def generar_reporte_desde_archivo(registros, archivo_plantilla):
 
 def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
     """
-    Genera el reporte de historial completo reescribiendo los encabezados de conceptos,
-    mapeando desde la columna A y mostrando adecuadamente los datos de familiares.
+    Genera el historial completo respetando los encabezados originales de la plantilla
+    y rellenando los datos de los alumnos con sus bordes y formato desde la fila 4.
     """
     wb_final = openpyxl.load_workbook(archivo_plantilla)
     ws = wb_final.active
     ws.title = "Historial Completo"
 
     negro = Side(style="thin", color="FF000000")
-    bordecelda = Border(left=negro, right=negro, top=negro, bottom=negro)
-    gris_encabezado = PatternFill(fill_type="solid", fgColor="FF747474")
+    borde_celda = Border(left=negro, right=negro, top=negro, bottom=negro)
 
-    # 1. Definir los conceptos / encabezados de la tabla en la fila 3
-    encabezados = [
-        "Cons.", "Nombre", "Apoyo", "Área", "Institución Educativa", 
-        "Carrera", "Inicio", "Termino", "Status", "Horas", 
-        "Familiar", "Parentesco / Nombre", "Apoyo Económico"
-    ]
-    
-    for col_idx, texto in enumerate(encabezados, start=1):
-        celda = ws.cell(row=3, column=col_idx)
-        celda.value = texto
-        celda.fill = copy.copy(gris_encabezado)
-        celda.border = copy.copy(bordecelda)
-        celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        celda.font = Font(name="Arial", size=9, bold=True, color="FFFFFFFF")
-
-    # Limpiar filas de datos anteriores (desde la fila 4 en adelante)
+    # Limpiar únicamente las filas de datos anteriores (desde la fila 4 en adelante)
     for fila in range(4, 500):
         for col in range(1, 15):
             ws.cell(row=fila, column=col).value = None
 
-    # 2. Escribir los registros de los alumnos empezando en la fila 4
+    # Escribir los registros de los alumnos empezando en la fila 4
     for i, r in enumerate(sorted(registros, key=lambda x: x.co)):
         fila = 4 + i
         
-        # Combinar el campo de familiar de forma clara (Sí/No + Nombre o Parentesco)
+        # Formato del familiar: Sí/No junto con su parentesco/nombre si aplica
         if r.es_familiar == 'Sí':
             info_familiar = f"Sí ({r.parentesco_familiar}: {r.nombre_familiar})" if r.nombre_familiar else f"Sí ({r.parentesco_familiar})"
         else:
             info_familiar = "No"
 
         valores = [
-            r.co,                           # 1: Cons. (A)
-            r.nombre_alumno,                # 2: Nombre (B)
-            r.tipo_apoyo,                   # 3: Apoyo (C)
-            r.area,                         # 4: Área (D)
-            r.institucion,                  # 5: Institución Educativa (E)
-            r.carrera,                      # 6: Carrera (F)
-            _fecha_corta(r.fecha_inicio),   # 7: Inicio (G)
-            _fecha_corta(r.fecha_fin),      # 8: Termino (H)
-            r.estatus,                      # 9: Status (I)
-            r.horas,                        # 10: Horas (J)
-            r.es_familiar,                  # 11: Familiar (Sí/No) (K)
-            info_familiar,                  # 12: Parentesco y Nombre (L)
-            _monto(r.tipo_remuneracion),    # 13: Apoyo Económico (M)
+            r.co,                           # Columna A (1): Cons.
+            r.nombre_alumno,                # Columna B (2): Nombre
+            r.tipo_apoyo,                   # Columna C (3): Apoyo
+            r.area,                         # Columna D (4): Área
+            r.institucion,                  # Columna E (5): Institución Educativa
+            r.carrera,                      # Columna F (6): Carrera
+            _fecha_corta(r.fecha_inicio),   # Columna G (7): Inicio
+            _fecha_corta(r.fecha_fin),      # Columna H (8): Termino
+            r.estatus,                      # Columna I (9): Status
+            r.horas,                        # Columna J (10): Horas
+            r.es_familiar,                  # Columna K (11): Familiar (Sí/No)
+            info_familiar,                  # Columna L (12): Parentesco / Nombre
+            _monto(r.tipo_remuneracion),    # Columna M (13): Apoyo Económico
         ]
         
         for col_idx, valor in enumerate(valores, start=1):
             celda = ws.cell(row=fila, column=col_idx)
             celda.value = valor
-            celda.border = copy.copy(bordecelda)
+            celda.border = copy.copy(borde_celda)
             celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             celda.font = Font(name="Arial", size=9, color="FF000000")
 
