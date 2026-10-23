@@ -1099,24 +1099,47 @@ def generar_reporte_desde_archivo(registros, archivo_plantilla):
 
 def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
     """
-    Genera el reporte de historial completo mapeando los registros exactamente 
-    desde la columna A (1) en la plantilla de todos (`plantillareporte_todos.xlsx`).
+    Genera el reporte de historial completo reescribiendo los encabezados de conceptos,
+    mapeando desde la columna A y mostrando adecuadamente los datos de familiares.
     """
     wb_final = openpyxl.load_workbook(archivo_plantilla)
     ws = wb_final.active
     ws.title = "Historial Completo"
 
     negro = Side(style="thin", color="FF000000")
-    borde_celda = Border(left=negro, right=negro, top=negro, bottom=negro)
+    bordecelda = Border(left=negro, right=negro, top=negro, bottom=negro)
+    gris_encabezado = PatternFill(fill_type="solid", fgColor="FF747474")
 
-    # Limpiar filas de datos anteriores por si acaso
-    for fila in range(3, 500):
+    # 1. Definir los conceptos / encabezados de la tabla en la fila 3
+    encabezados = [
+        "Cons.", "Nombre", "Apoyo", "Área", "Institución Educativa", 
+        "Carrera", "Inicio", "Termino", "Status", "Horas", 
+        "Familiar", "Parentesco / Nombre", "Apoyo Económico"
+    ]
+    
+    for col_idx, texto in enumerate(encabezados, start=1):
+        celda = ws.cell(row=3, column=col_idx)
+        celda.value = texto
+        celda.fill = copy.copy(gris_encabezado)
+        celda.border = copy.copy(bordecelda)
+        celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        celda.font = Font(name="Arial", size=9, bold=True, color="FFFFFFFF")
+
+    # Limpiar filas de datos anteriores (desde la fila 4 en adelante)
+    for fila in range(4, 500):
         for col in range(1, 15):
             ws.cell(row=fila, column=col).value = None
 
-    # Escribir los registros empezando en la fila 3
+    # 2. Escribir los registros de los alumnos empezando en la fila 4
     for i, r in enumerate(sorted(registros, key=lambda x: x.co)):
-        fila = 3 + i
+        fila = 4 + i
+        
+        # Combinar el campo de familiar de forma clara (Sí/No + Nombre o Parentesco)
+        if r.es_familiar == 'Sí':
+            info_familiar = f"Sí ({r.parentesco_familiar}: {r.nombre_familiar})" if r.nombre_familiar else f"Sí ({r.parentesco_familiar})"
+        else:
+            info_familiar = "No"
+
         valores = [
             r.co,                           # 1: Cons. (A)
             r.nombre_alumno,                # 2: Nombre (B)
@@ -1128,15 +1151,15 @@ def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
             _fecha_corta(r.fecha_fin),      # 8: Termino (H)
             r.estatus,                      # 9: Status (I)
             r.horas,                        # 10: Horas (J)
-            r.es_familiar,                  # 11: Familiar (K)
-            r.parentesco_familiar,          # 12: Parentesco (L)
+            r.es_familiar,                  # 11: Familiar (Sí/No) (K)
+            info_familiar,                  # 12: Parentesco y Nombre (L)
             _monto(r.tipo_remuneracion),    # 13: Apoyo Económico (M)
         ]
         
         for col_idx, valor in enumerate(valores, start=1):
             celda = ws.cell(row=fila, column=col_idx)
             celda.value = valor
-            celda.border = copy.copy(borde_celda)
+            celda.border = copy.copy(bordecelda)
             celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             celda.font = Font(name="Arial", size=9, color="FF000000")
 
@@ -1144,7 +1167,6 @@ def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
     wb_final.save(salida)
     salida.seek(0)
     return salida
-
 
 @app.route('/descargar_excel')
 def descargar_excel():
@@ -1195,4 +1217,3 @@ def descargar_excel_todos():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
-    
