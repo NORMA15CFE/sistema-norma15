@@ -1087,8 +1087,8 @@ def generar_reporte_plantilla(registros):
         # FORZAR ESTILOS EN ENCABEZADOS (Fila 14): Fondo gris y bordes negros
         for col in range(3, 15):
             celda = ws.cell(row=14, column=col)
-            celda.fill = copy(gris_encabezado)
-            celda.border = copy(borde_celda)
+            celda.fill = copy.copy(gris_encabezado)
+            celda.border = copy.copy(borde_celda)
             celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             celda.font = Font(name="Arial", size=8, bold=True, color="FF000000")
 
@@ -1096,7 +1096,7 @@ def generar_reporte_plantilla(registros):
         for fila in range(15, 35):
             for col in range(3, 15):
                 celda = ws.cell(row=fila, column=col)
-                celda.border = copy(borde_celda)
+                celda.border = copy.copy(borde_celda)
                 celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
                 if celda.value is not None:
                     celda.font = Font(name="Arial", size=8, color="FF000000")
