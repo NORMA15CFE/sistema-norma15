@@ -1097,6 +1097,55 @@ def generar_reporte_desde_archivo(registros, archivo_plantilla):
     return _restaurar_dibujos_plantilla(salida, archivo_plantilla)
 
 
+def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
+    """
+    Genera el reporte de historial completo mapeando los registros exactamente 
+    desde la columna A (1) en la plantilla de todos (`plantillareporte_todos.xlsx`).
+    """
+    wb_final = openpyxl.load_workbook(archivo_plantilla)
+    ws = wb_final.active
+    ws.title = "Historial Completo"
+
+    negro = Side(style="thin", color="FF000000")
+    borde_celda = Border(left=negro, right=negro, top=negro, bottom=negro)
+
+    # Limpiar filas de datos anteriores por si acaso
+    for fila in range(3, 500):
+        for col in range(1, 15):
+            ws.cell(row=fila, column=col).value = None
+
+    # Escribir los registros empezando en la fila 3
+    for i, r in enumerate(sorted(registros, key=lambda x: x.co)):
+        fila = 3 + i
+        valores = [
+            r.co,                           # 1: Cons. (A)
+            r.nombre_alumno,                # 2: Nombre (B)
+            r.tipo_apoyo,                   # 3: Apoyo (C)
+            r.area,                         # 4: Área (D)
+            r.institucion,                  # 5: Institución Educativa (E)
+            r.carrera,                      # 6: Carrera (F)
+            _fecha_corta(r.fecha_inicio),   # 7: Inicio (G)
+            _fecha_corta(r.fecha_fin),      # 8: Termino (H)
+            r.estatus,                      # 9: Status (I)
+            r.horas,                        # 10: Horas (J)
+            r.es_familiar,                  # 11: Familiar (K)
+            r.parentesco_familiar,          # 12: Parentesco (L)
+            _monto(r.tipo_remuneracion),    # 13: Apoyo Económico (M)
+        ]
+        
+        for col_idx, valor in enumerate(valores, start=1):
+            celda = ws.cell(row=fila, column=col_idx)
+            celda.value = valor
+            celda.border = copy.copy(borde_celda)
+            celda.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            celda.font = Font(name="Arial", size=9, color="FF000000")
+
+    salida = io.BytesIO()
+    wb_final.save(salida)
+    salida.seek(0)
+    return salida
+
+
 @app.route('/descargar_excel')
 def descargar_excel():
     if 'usuario' not in session:
@@ -1134,7 +1183,7 @@ def descargar_excel_todos():
         return redirect(url_for('dashboard'))
 
     registros = Registro.query.order_by(Registro.co.asc()).all()
-    output = generar_reporte_desde_archivo(registros, PLANTILLA_TODOS)
+    output = generar_reporte_todos_desde_archivo(registros, PLANTILLA_TODOS)
     return send_file(
         output,
         as_attachment=True,
