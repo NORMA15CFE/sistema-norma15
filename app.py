@@ -701,19 +701,36 @@ def gestionar_oficios_zona():
 def subir_oficio_zona():
     if 'usuario' not in session:
         return redirect(url_for('login'))
+    
     zona_destino = request.form.get('zona_destino')
     file = request.files.get('archivo_oficio_zona')
+    
     if file and file.filename != '':
         upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
-        flash('Oficio subido a la nube correctamente.')
-    return redirect(url_for('gestionar_oficios_zona', zona_destino=zona_destino))
+        
+        carpeta_zona = os.path.join('static', 'oficios_pago_zona', zona_destino)
+        os.makedirs(carpeta_zona, exist_ok=True)
+        filename_seguro = secure_filename(file.filename)
+        file.seek(0)
+        file.save(os.path.join(carpeta_zona, filename_seguro))
+        
+        flash('Oficio de pago subido correctamente a la nube y registrado.')
+        
+    return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona_destino))
 
 
 @app.route('/eliminar_oficio_zona/<string:zona>/<string:nombre_archivo>')
 def eliminar_oficio_zona(zona, nombre_archivo):
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    flash('Oficio eliminado.')
+    
+    filepath = os.path.join('static', 'oficios_pago_zona', zona, nombre_archivo)
+    if os.path.exists(filepath):
+        os.remove(filepath)
+        flash('Oficio eliminado correctamente.')
+    else:
+        flash('No se encontró el archivo a eliminar.')
+        
     return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona))
 
 
@@ -1109,35 +1126,32 @@ def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
     negro = Side(style="thin", color="FF000000")
     borde_celda = Border(left=negro, right=negro, top=negro, bottom=negro)
 
-    # Limpiar únicamente las filas de datos anteriores (desde la fila 4 en adelante)
     for fila in range(4, 500):
         for col in range(1, 15):
             ws.cell(row=fila, column=col).value = None
 
-    # Escribir los registros de los alumnos empezando en la fila 4
     for i, r in enumerate(sorted(registros, key=lambda x: x.co)):
         fila = 4 + i
         
-        # Formato del familiar: Sí/No junto con su parentesco/nombre si aplica
         if r.es_familiar == 'Sí':
             info_familiar = f"Sí ({r.parentesco_familiar}: {r.nombre_familiar})" if r.nombre_familiar else f"Sí ({r.parentesco_familiar})"
         else:
             info_familiar = "No"
 
         valores = [
-            r.co,                           # Columna A (1): Cons.
-            r.nombre_alumno,                # Columna B (2): Nombre
-            r.tipo_apoyo,                   # Columna C (3): Apoyo
-            r.area,                         # Columna D (4): Área
-            r.institucion,                  # Columna E (5): Institución Educativa
-            r.carrera,                      # Columna F (6): Carrera
-            _fecha_corta(r.fecha_inicio),   # Columna G (7): Inicio
-            _fecha_corta(r.fecha_fin),      # Columna H (8): Termino
-            r.estatus,                      # Columna I (9): Status
-            r.horas,                        # Columna J (10): Horas
-            r.es_familiar,                  # Columna K (11): Familiar (Sí/No)
-            info_familiar,                  # Columna L (12): Parentesco / Nombre
-            _monto(r.tipo_remuneracion),    # Columna M (13): Apoyo Económico
+            r.co,                           
+            r.nombre_alumno,                
+            r.tipo_apoyo,                   
+            r.area,                         
+            r.institucion,                  
+            r.carrera,                      
+            _fecha_corta(r.fecha_inicio),   
+            _fecha_corta(r.fecha_fin),      
+            r.estatus,                      
+            r.horas,                        
+            r.es_familiar,                  
+            info_familiar,                  
+            _monto(r.tipo_remuneracion),    
         ]
         
         for col_idx, valor in enumerate(valores, start=1):
