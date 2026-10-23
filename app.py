@@ -687,13 +687,23 @@ def gestionar_oficios_zona():
     archivos_zona = os.listdir(carpeta_zona) if os.path.exists(carpeta_zona) else []
     todas_las_zonas = [sec['nombre'] for sec in USUARIOS_PERMITIDOS.values()]
 
+    # Mostrar únicamente los 12 meses del año actual de forma automática
+    anio_actual = datetime.now().year
+    meses_disponibles = []
+    for m_num in range(1, 13):
+        dt_temp = datetime(anio_actual, m_num, 1)
+        mes_en = dt_temp.strftime('%B')
+        mes_es = MESES_ESP.get(mes_en, mes_en).capitalize()
+        meses_disponibles.append(f"{mes_es} {anio_actual}")
+
     return render_template(
         'gestionar_oficios_zona.html',
         zona_seleccionada=zona_seleccionada,
         archivos_zona=archivos_zona,
         todas_las_zonas=todas_las_zonas,
         rol=rol_usuario,
-        usuario=usuario_actual
+        usuario=usuario_actual,
+        meses_disponibles=meses_disponibles
     )
 
 
@@ -1115,10 +1125,6 @@ def generar_reporte_desde_archivo(registros, archivo_plantilla):
 
 
 def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
-    """
-    Genera el historial completo respetando los encabezados originales de la plantilla
-    y rellenando los datos de los alumnos con sus bordes y formato desde la fila 4.
-    """
     wb_final = openpyxl.load_workbook(archivo_plantilla)
     ws = wb_final.active
     ws.title = "Historial Completo"
@@ -1165,6 +1171,7 @@ def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
     wb_final.save(salida)
     salida.seek(0)
     return salida
+
 
 @app.route('/descargar_excel')
 def descargar_excel():
@@ -1215,3 +1222,4 @@ def descargar_excel_todos():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+    

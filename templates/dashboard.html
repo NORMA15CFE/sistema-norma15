@@ -89,7 +89,7 @@
                     {% endif %}
                 </div>
 
-                <!-- LUPA DE BÚSQUEDA POR NOMBRE EN EL ESPACIO SEÑALADO -->
+                <!-- LUPA DE BÚSQUEDA POR NOMBRE -->
                 <div class="col-md-4">
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-white text-success"><i class="fas fa-search"></i></span>
@@ -228,7 +228,6 @@
                                         <div class="mb-2"><label class="fw-bold text-success">Acta de Nacimiento:</label><input type="file" class="form-control form-control-sm" name="acta_nacimiento"></div>
                                         <div class="mb-2"><label class="fw-bold text-success">Constancia de vigencia de seguros médicos:</label><input type="file" class="form-control form-control-sm" name="vigencia_imss"></div>
                                         
-                                        <!-- NUEVO: Formato de Solicitud -->
                                         <div class="mb-2"><label class="fw-bold text-success">Formato de solicitud:</label><input type="file" class="form-control form-control-sm" name="formato_solicitud"></div>
 
                                         <div class="p-3 bg-light border rounded mb-2">
@@ -258,45 +257,44 @@
                                 </div>
                                 <div class="modal-body small">
                                     <ul class="list-group mb-3">
-                                        <!-- NUEVO: Formato de Solicitud en Ver Archivos -->
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>Formato Solicitud:</strong> {% if r[29] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[29]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>Formato Solicitud:</strong> {% if r[29] %}<a href="{{ r[29] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[29] %}<a href="/eliminar_archivo/{{ r[0] }}/formato_solicitud" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>Carta Presentación:</strong> {% if r[17] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[17]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>Carta Presentación:</strong> {% if r[17] %}<a href="{{ r[17] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[17] %}<a href="/eliminar_archivo/{{ r[0] }}/carta_presentacion" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>Carta Aceptación:</strong> {% if r[18] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[18]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>Carta Aceptación:</strong> {% if r[18] %}<a href="{{ r[18] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[18] %}<a href="/eliminar_archivo/{{ r[0] }}/carta_aceptacion" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>Constancia Calificaciones:</strong> {% if r[19] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[19]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>Constancia Calificaciones:</strong> {% if r[19] %}<a href="{{ r[19] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[19] %}<a href="/eliminar_archivo/{{ r[0] }}/constancia" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>Buena Conducta:</strong> {% if r[20] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[20]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>Buena Conducta:</strong> {% if r[20] %}<a href="{{ r[20] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[20] %}<a href="/eliminar_archivo/{{ r[0] }}/buena_conducta" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>INE:</strong> {% if r[21] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[21]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>INE:</strong> {% if r[21] %}<a href="{{ r[21] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[21] %}<a href="/eliminar_archivo/{{ r[0] }}/ine" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>Acta Nacimiento:</strong> {% if r[27] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[27]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>Acta Nacimiento:</strong> {% if r[27] %}<a href="{{ r[27] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[27] %}<a href="/eliminar_archivo/{{ r[0] }}/acta_nacimiento" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>Vigencia IMSS:</strong> {% if r[28] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[28]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>Seguros Médicos:</strong> {% if r[28] %}<a href="{{ r[28] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[28] %}<a href="/eliminar_archivo/{{ r[0] }}/vigencia_imss" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>CLABE Interbancaria:</strong> {% if r[24] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[24]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %} <br><small class="text-muted">Banco: {{ r[15] or 'N/A' }} | CLABE: {{ r[16] or 'N/A' }}</small></span>
+                                            <span><strong>CLABE Interbancaria:</strong> {% if r[24] %}<a href="{{ r[24] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %} <br><small class="text-muted">Banco: {{ r[15] or 'N/A' }} | CLABE: {{ r[16] or 'N/A' }}</small></span>
                                             {% if r[24] or r[16] %}<a href="/eliminar_archivo/{{ r[0] }}/clabe" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
-                                            <span><strong>Contrato:</strong> {% if r[25] %}<a href="{{ url_for('static', filename='uploads_alumnos/' + r[25]) }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            <span><strong>Contrato:</strong> {% if r[25] %}<a href="{{ r[25] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
                                             {% if r[25] %}<a href="/eliminar_archivo/{{ r[0] }}/contrato" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                     </ul>
