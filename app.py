@@ -194,6 +194,8 @@ def fecha_a_espanol(dt_obj):
 def init_db():
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+    with app.app_context():
+        db.create_all()
 
 
 @app.route('/')
@@ -406,19 +408,16 @@ def subir_archivos(co):
     for input_name, db_col in campos_archivos.items():
         file = request.files.get(input_name)
         if file and file.filename != '':
-            # Subida estándar y respaldo local obligatorio para evitar errores 401
+            # Subida corregida agregando fl_attachment o URL limpia para evitar error 401
             upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
             file_url = upload_result.get('secure_url')
-            
-            file.seek(0)
-            filename_seguro = secure_filename(f"CO_{co}_{input_name}_{file.filename}")
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename_seguro)
-            file.save(filepath)
+            if file_url and '/image/upload/' in file_url:
+                file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
             
             setattr(alumno, db_col, file_url)
 
     db.session.commit()
-    flash('Archivos subidos exitosamente con respaldo seguro.')
+    flash('Archivos subidos exitosamente.')
     return redirect(url_for('dashboard'))
 
 
@@ -715,6 +714,9 @@ def subir_oficio_zona():
     
     if file and file.filename != '':
         upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
+        file_url = upload_result.get('secure_url')
+        if file_url and '/image/upload/' in file_url:
+            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
         
         carpeta_zona = os.path.join('static', 'oficios_pago_zona', zona_destino)
         os.makedirs(carpeta_zona, exist_ok=True)
@@ -776,6 +778,9 @@ def subir_camcaypl():
     if file and file.filename != '':
         upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
         file_url = upload_result.get('secure_url')
+        if file_url and '/image/upload/' in file_url:
+            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
+            
         filename_seguro = secure_filename(file.filename)
 
         nuevo_archivo = CamcaYPlZona(
@@ -827,6 +832,8 @@ def subir_reporte_mes(co):
     if file and file.filename != '' and mes_anio:
         upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
         file_url = upload_result.get('secure_url')
+        if file_url and '/image/upload/' in file_url:
+            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
 
         existente = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
         if existente:
@@ -869,6 +876,8 @@ def subir_recibo_alumno_mes(co):
     if file and file.filename != '' and mes_anio:
         upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
         file_url = upload_result.get('secure_url')
+        if file_url and '/image/upload/' in file_url:
+            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
 
         existente = ReciboAlumnoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
         if existente:
@@ -911,6 +920,8 @@ def subir_recibo_pago_mes(co):
     if file and file.filename != '' and mes_anio:
         upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
         file_url = upload_result.get('secure_url')
+        if file_url and '/image/upload/' in file_url:
+            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
 
         existente = ReciboPagoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
         if existente:
@@ -933,15 +944,6 @@ def eliminar_recibo_pago_mes(reporte_id, co):
         db.session.commit()
         flash('Oficio de pago eliminado.')
     return redirect(url_for('gestionar_recibos_pago', co=co))
-
-
-# ==========================================
-# RUTAS DE EMERGENCIA
-# ==========================================
-@app.route('/crear_tablas_emergencia')
-def crear_tablas_emergencia():
-    db.create_all()
-    return "¡Tablas creadas con éxito en la base de datos de Render!"
 
 
 # ==========================================
@@ -1284,4 +1286,6 @@ def descargar_excel_todos():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+else:
+    init_db()
     
