@@ -52,16 +52,14 @@ cloudinary.config(
 
 
 def subir_a_cloudinary(file):
-    """Sube un archivo a Cloudinary y limpia la URL para permitir visualización pública."""
-    resultado = cloudinary.uploader.upload(file.stream, resource_type="auto")
-    secure_url = resultado.get('secure_url')
-    
-    # Si es PDF o documento, aseguramos que se pueda visualizar correctamente en el navegador
-    if secure_url and '/image/upload/' in secure_url:
-        # Reemplazamos para permitir la visualización y descarga fluida sin error 401
-        secure_url = secure_url.replace('/image/upload/', '/image/upload/fl_inline/')
-        
-    return secure_url
+    """Sube un archivo a Cloudinary de forma totalmente pública, limpia y accesible."""
+    resultado = cloudinary.uploader.upload(
+        file.stream, 
+        resource_type="auto",
+        type="upload",
+        access_mode="public"
+    )
+    return resultado.get('secure_url')
 
 
 # ==========================================
