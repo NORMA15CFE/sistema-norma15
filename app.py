@@ -35,7 +35,6 @@ import cloudinary.uploader
 import cloudinary.api
 
 app = Flask(__name__)
-# Recomendado: define SECRET_KEY como variable de entorno en Render
 app.secret_key = os.environ.get('SECRET_KEY', 'clave_secreta_cfe_norma15')
 
 UPLOAD_FOLDER = 'static/uploads_alumnos'
@@ -53,11 +52,16 @@ cloudinary.config(
 
 
 def subir_a_cloudinary(file):
-    """Sube un archivo a Cloudinary y regresa la URL segura (sin modificarla).
-    IMPORTANTE: en Cloudinary > Settings > Security > Restricted media types
-    debe estar DESMARCADO 'PDF and ZIP files' para que los PDF abran."""
+    """Sube un archivo a Cloudinary y limpia la URL para permitir visualización pública."""
     resultado = cloudinary.uploader.upload(file.stream, resource_type="auto")
-    return resultado.get('secure_url')
+    secure_url = resultado.get('secure_url')
+    
+    # Si es PDF o documento, aseguramos que se pueda visualizar correctamente en el navegador
+    if secure_url and '/image/upload/' in secure_url:
+        # Reemplazamos para permitir la visualización y descarga fluida sin error 401
+        secure_url = secure_url.replace('/image/upload/', '/image/upload/fl_inline/')
+        
+    return secure_url
 
 
 # ==========================================
@@ -81,7 +85,7 @@ USUARIOS_PERMITIDOS = {
     'DJ020': {'nombre': 'Xalapa', 'rol': 'seccion'},
     'DJ030': {'nombre': 'Teziutlán', 'rol': 'seccion'},
     'DJ060': {'nombre': 'Veracruz', 'rol': 'seccion'},
-    'DJ070': {'nombre': 'Papaloapan', 'rol': 'seccion'},  # corregido: antes era DJO70 (letra O)
+    'DJ070': {'nombre': 'Papaloapan', 'rol': 'seccion'},
     'DJ100': {'nombre': 'Los Tuxtlas', 'rol': 'seccion'},
     'DJ110': {'nombre': 'Coatzacoalcos', 'rol': 'seccion'},
     'DJ130': {'nombre': 'Orizaba', 'rol': 'seccion'},
@@ -103,9 +107,6 @@ MESES_ESP = {
     'December': 'diciembre',
 }
 
-# ==========================================
-# CONFIGURACIÓN DEL REPORTE EXCEL (PLANTILLAS)
-# ==========================================
 PLANTILLA_REPORTE = 'plantillareporte_norma15.xlsx'
 PLANTILLA_TODOS = 'plantillareporte_todos.xlsx'
 FILAS_POR_HOJA = 20
@@ -204,8 +205,6 @@ def fecha_a_espanol(dt_obj):
 
 
 def reparar_base_datos():
-    """Agrega columnas faltantes a las tablas existentes y, en PostgreSQL,
-    sincroniza la secuencia del campo 'co'. Es seguro ejecutarlo varias veces."""
     try:
         inspector = inspect(db.engine)
         for tabla in db.metadata.sorted_tables:
@@ -217,19 +216,8 @@ def reparar_base_datos():
                     tipo = col.type.compile(dialect=db.engine.dialect)
                     with db.engine.begin() as conn:
                         conn.execute(text(f'ALTER TABLE {tabla.name} ADD COLUMN {col.name} {tipo}'))
-                    print(f'[reparar_base_datos] Columna agregada: {tabla.name}.{col.name}')
     except Exception as e:
-        print(f'[reparar_base_datos] No se pudieron revisar columnas: {e}')
-
-    try:
-        if db.engine.dialect.name == 'postgresql':
-            with db.engine.begin() as conn:
-                conn.execute(text(
-                    "SELECT setval(pg_get_serial_sequence('registros', 'co'), "
-                    "COALESCE((SELECT MAX(co) FROM registros), 0) + 1, false)"
-                ))
-    except Exception as e:
-        print(f'[reparar_base_datos] No se pudo sincronizar la secuencia: {e}')
+        print(f'[reparar_base_datos] Error: {e}')
 
 
 def init_db():
@@ -340,8 +328,7 @@ def registrar():
             db.session.commit()
         except Exception as e:
             db.session.rollback()
-            app.logger.exception('Error al registrar alumno')
-            flash(f'Error al guardar: {str(e)[:300]}')
+            flash(f'Error al guardar: {str(e)[:200]}')
             return redirect(url_for('registrar'))
 
         flash('Estudiante registrado exitosamente.')
@@ -464,8 +451,7 @@ def subir_archivos(co):
         flash('Archivos subidos exitosamente.')
     except Exception as e:
         db.session.rollback()
-        app.logger.exception('Error al subir archivos')
-        flash(f'Error al subir archivos: {str(e)[:300]}')
+        flash(f'Error al subir archivos: {str(e)[:200]}')
 
     return redirect(url_for('dashboard'))
 
@@ -719,7 +705,6 @@ def generar_convenio_gratuito(co):
 
 # ==========================================
 # GESTIÓN DE OFICIOS DE PAGO POR ZONA
-# (Se guardan en disco local de Render: se borran en cada deploy)
 # ==========================================
 @app.route('/gestionar_oficios_zona', methods=['GET'])
 def gestionar_oficios_zona():
@@ -767,7 +752,6 @@ def subir_oficio_zona():
         os.makedirs(carpeta_zona, exist_ok=True)
         filename_seguro = secure_filename(file.filename)
         file.save(os.path.join(carpeta_zona, filename_seguro))
-
         flash('Oficio de pago subido correctamente.')
 
     return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona_destino))
@@ -834,8 +818,7 @@ def subir_camcaypl():
             flash('Archivo de CAMCAyPL subido correctamente.')
         except Exception as e:
             db.session.rollback()
-            app.logger.exception('Error al subir CAMCAyPL')
-            flash(f'Error al subir el archivo: {str(e)[:300]}')
+            flash(f'Error al subir el archivo: {str(e)[:200]}')
 
     return redirect(url_for('gestionar_camcaypl', zona_seleccionada=zona_destino))
 
@@ -887,8 +870,7 @@ def subir_reporte_mes(co):
             flash(f'Reporte de {mes_anio} subido correctamente.')
         except Exception as e:
             db.session.rollback()
-            app.logger.exception('Error al subir reporte')
-            flash(f'Error al subir el reporte: {str(e)[:300]}')
+            flash(f'Error al subir el reporte: {str(e)[:200]}')
     return redirect(url_for('gestionar_reportes', co=co))
 
 
@@ -932,8 +914,7 @@ def subir_recibo_alumno_mes(co):
             flash(f'Recibo del alumno de {mes_anio} subido correctamente.')
         except Exception as e:
             db.session.rollback()
-            app.logger.exception('Error al subir recibo del alumno')
-            flash(f'Error al subir el recibo: {str(e)[:300]}')
+            flash(f'Error al subir el recibo: {str(e)[:200]}')
     return redirect(url_for('gestionar_recibos_alumno', co=co))
 
 
@@ -977,8 +958,7 @@ def subir_recibo_pago_mes(co):
             flash(f'Oficio de pago de {mes_anio} subido correctamente.')
         except Exception as e:
             db.session.rollback()
-            app.logger.exception('Error al subir oficio de pago')
-            flash(f'Error al subir el oficio: {str(e)[:300]}')
+            flash(f'Error al subir el oficio: {str(e)[:200]}')
     return redirect(url_for('gestionar_recibos_pago', co=co))
 
 
