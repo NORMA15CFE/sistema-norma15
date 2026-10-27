@@ -151,15 +151,20 @@ class Registro(db.Model):
         return columnas[index]
 
 
+class CamcaYPlZona(db.Model):
+    __tablename__ = 'camcaypl_zona'
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    zona = db.Column(db.String, nullable=False)
+    nombre_archivo = db.Column(db.String, nullable=False)
+    url_archivo = db.Column(db.String, nullable=False)
+
+
 class ReporteMensual(db.Model):
     __tablename__ = 'reportes_mensuales'
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     alumno_co = db.Column(db.Integer, db.ForeignKey('registros.co', ondelete='CASCADE'))
     mes_anio = db.Column(db.String, nullable=False)
     nombre_archivo = db.Column(db.String, nullable=False)
-
-    def __getitem__(self, index):
-        return [self.id, self.alumno_co, self.mes_anio, self.nombre_archivo][index]
 
 
 class ReciboAlumnoMensual(db.Model):
@@ -169,9 +174,6 @@ class ReciboAlumnoMensual(db.Model):
     mes_anio = db.Column(db.String, nullable=False)
     nombre_archivo = db.Column(db.String, nullable=False)
 
-    def __getitem__(self, index):
-        return [self.id, self.alumno_co, self.mes_anio, self.nombre_archivo][index]
-
 
 class ReciboPagoMensual(db.Model):
     __tablename__ = 'recibos_pago_mensuales'
@@ -179,9 +181,6 @@ class ReciboPagoMensual(db.Model):
     alumno_co = db.Column(db.Integer, db.ForeignKey('registros.co', ondelete='CASCADE'))
     mes_anio = db.Column(db.String, nullable=False)
     nombre_archivo = db.Column(db.String, nullable=False)
-
-    def __getitem__(self, index):
-        return [self.id, self.alumno_co, self.mes_anio, self.nombre_archivo][index]
 
 
 def fecha_a_espanol(dt_obj):
@@ -407,12 +406,24 @@ def subir_archivos(co):
     for input_name, db_col in campos_archivos.items():
         file = request.files.get(input_name)
         if file and file.filename != '':
-            upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
+            # Subida pública a Cloudinary sin error 401 y con respaldo local asegurado
+            upload_result = cloudinary.uploader.upload(
+                file.stream, 
+                resource_type="auto",
+                type="upload",
+                access_mode="public"
+            )
             file_url = upload_result.get('secure_url')
+            
+            file.seek(0)
+            filename_seguro = secure_filename(f"CO_{co}_{input_name}_{file.filename}")
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename_seguro)
+            file.save(filepath)
+            
             setattr(alumno, db_col, file_url)
 
     db.session.commit()
-    flash('Archivos subidos a la nube y datos bancarios actualizados correctamente.')
+    flash('Archivos subidos exitosamente con respaldo y permisos públicos.')
     return redirect(url_for('dashboard'))
 
 
@@ -442,19 +453,12 @@ def eliminar_archivo(co, campo):
     alumno = Registro.query.get(co)
 
     if alumno:
-        url_archivo = getattr(alumno, db_col)
-        if url_archivo:
-            if not url_archivo.startswith('http'):
-                filepath = os.path.join(app.config['UPLOAD_FOLDER'], url_archivo)
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-
-            setattr(alumno, db_col, None)
-            if db_col == 'archivo_clabe':
-                alumno.banco_clabe = None
-                alumno.numero_clabe = None
-            db.session.commit()
-            flash('Archivo eliminado correctamente.')
+        setattr(alumno, db_col, None)
+        if db_col == 'archivo_clabe':
+            alumno.banco_clabe = None
+            alumno.numero_clabe = None
+        db.session.commit()
+        flash('Archivo eliminado correctamente.')
 
     return redirect(url_for('dashboard'))
 
@@ -687,7 +691,6 @@ def gestionar_oficios_zona():
     archivos_zona = os.listdir(carpeta_zona) if os.path.exists(carpeta_zona) else []
     todas_las_zonas = [sec['nombre'] for sec in USUARIOS_PERMITIDOS.values()]
 
-    # Mostrar únicamente los 12 meses del año actual de forma automática
     anio_actual = datetime.now().year
     meses_disponibles = []
     for m_num in range(1, 13):
@@ -716,7 +719,12 @@ def subir_oficio_zona():
     file = request.files.get('archivo_oficio_zona')
     
     if file and file.filename != '':
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
+        upload_result = cloudinary.uploader.upload(
+            file.stream, 
+            resource_type="auto",
+            type="upload",
+            access_mode="public"
+        )
         
         carpeta_zona = os.path.join('static', 'oficios_pago_zona', zona_destino)
         os.makedirs(carpeta_zona, exist_ok=True)
@@ -724,7 +732,7 @@ def subir_oficio_zona():
         file.seek(0)
         file.save(os.path.join(carpeta_zona, filename_seguro))
         
-        flash('Oficio de pago subido correctamente a la nube y registrado.')
+        flash('Oficio de pago subido correctamente con respaldo público.')
         
     return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona_destino))
 
@@ -738,10 +746,79 @@ def eliminar_oficio_zona(zona, nombre_archivo):
     if os.path.exists(filepath):
         os.remove(filepath)
         flash('Oficio eliminado correctamente.')
-    else:
-        flash('No se encontró el archivo a eliminar.')
-        
+    
     return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona))
+
+
+# ==========================================
+# GESTIÓN DE CAMCAYPL POR ZONA (NUEVO MÓDULO)
+# ==========================================
+@app.route('/gestionar_camcaypl', methods=['GET'])
+def gestionar_camcaypl():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+
+    usuario_actual = session['usuario']
+    rol_usuario = session['rol']
+    zona_seleccionada = request.args.get('zona_seleccionada', 'Oficinas Divisionales' if rol_usuario == 'admin' else usuario_actual)
+
+    archivos_camcaypl = CamcaYPlZona.query.filter_by(zona=zona_seleccionada).all()
+    todas_las_zonas = [sec['nombre'] for sec in USUARIOS_PERMITIDOS.values()]
+
+    return render_template(
+        'gestionar_camcaypl.html',
+        zona_seleccionada=zona_seleccionada,
+        archivos_camcaypl=archivos_camcaypl,
+        todas_las_zonas=todas_las_zonas,
+        rol=rol_usuario,
+        usuario=usuario_actual
+    )
+
+
+@app.route('/subir_camcaypl', methods=['POST'])
+def subir_camcaypl():
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    zona_destino = request.form.get('zona_destino')
+    file = request.files.get('archivo_camcaypl')
+    
+    if file and file.filename != '':
+        upload_result = cloudinary.uploader.upload(
+            file.stream, 
+            resource_type="auto",
+            type="upload",
+            access_mode="public"
+        )
+        file_url = upload_result.get('secure_url')
+        filename_seguro = secure_filename(file.filename)
+
+        nuevo_archivo = CamcaYPlZona(
+            zona=zona_destino,
+            nombre_archivo=filename_seguro,
+            url_archivo=file_url
+        )
+        db.session.add(nuevo_archivo)
+        db.session.commit()
+        flash('Archivo de CAMCAyPL subido correctamente a la nube.')
+        
+    return redirect(url_for('gestionar_camcaypl', zona_seleccionada=zona_destino))
+
+
+@app.route('/eliminar_camcaypl/<int:id_archivo>')
+def eliminar_camcaypl(id_archivo):
+    if 'usuario' not in session:
+        return redirect(url_for('login'))
+    
+    archivo = CamcaYPlZona.query.get(id_archivo)
+    if archivo:
+        zona_destino = archivo.zona
+        db.session.delete(archivo)
+        db.session.commit()
+        flash('Archivo de CAMCAyPL eliminado correctamente.')
+        return redirect(url_for('gestionar_camcaypl', zona_seleccionada=zona_destino))
+    
+    return redirect(url_for('gestionar_camcaypl'))
 
 
 # ==========================================
@@ -763,7 +840,9 @@ def subir_reporte_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_reporte')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
+        upload_result = cloudinary.uploader.upload(
+            file.stream, resource_type="auto", type="upload", access_mode="public"
+        )
         file_url = upload_result.get('secure_url')
 
         existente = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
@@ -773,7 +852,7 @@ def subir_reporte_mes(co):
             nuevo = ReporteMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
             db.session.add(nuevo)
         db.session.commit()
-        flash(f'Reporte de {mes_anio} subido a la nube correctamente.')
+        flash(f'Reporte de {mes_anio} subido correctamente.')
     return redirect(url_for('gestionar_reportes', co=co))
 
 
@@ -805,7 +884,9 @@ def subir_recibo_alumno_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_recibo_alumno')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
+        upload_result = cloudinary.uploader.upload(
+            file.stream, resource_type="auto", type="upload", access_mode="public"
+        )
         file_url = upload_result.get('secure_url')
 
         existente = ReciboAlumnoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
@@ -815,7 +896,7 @@ def subir_recibo_alumno_mes(co):
             nuevo = ReciboAlumnoMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
             db.session.add(nuevo)
         db.session.commit()
-        flash(f'Recibo del alumno de {mes_anio} subido a la nube correctamente.')
+        flash(f'Recibo del alumno de {mes_anio} subido correctamente.')
     return redirect(url_for('gestionar_recibos_alumno', co=co))
 
 
@@ -847,7 +928,9 @@ def subir_recibo_pago_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_recibo')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
+        upload_result = cloudinary.uploader.upload(
+            file.stream, resource_type="auto", type="upload", access_mode="public"
+        )
         file_url = upload_result.get('secure_url')
 
         existente = ReciboPagoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
@@ -857,7 +940,7 @@ def subir_recibo_pago_mes(co):
             nuevo = ReciboPagoMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
             db.session.add(nuevo)
         db.session.commit()
-        flash(f'Oficio de pago de {mes_anio} subido a la nube correctamente.')
+        flash(f'Oficio de pago de {mes_anio} subido correctamente.')
     return redirect(url_for('gestionar_recibos_pago', co=co))
 
 
@@ -879,11 +962,11 @@ def eliminar_recibo_pago_mes(reporte_id, co):
 @app.route('/crear_tablas_emergencia')
 def crear_tablas_emergencia():
     db.create_all()
-    return "¡Tablas creadas con éxito en la base de datos de Render!"
+    return "¡Tablas creadas con éxito en la base de datos de Render (incluyendo CAMCAyPL)!"
 
 
 # ==========================================
-# REPORTE EXCEL OFICIAL (BASADO EN PLANTILLA)
+# REPORTE EXCEL OFICIAL
 # ==========================================
 def _fecha_corta(valor):
     try:

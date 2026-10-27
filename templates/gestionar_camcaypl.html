@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestión de CAMCAyPL por Zona - CFE</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { background-color: #f4f6f4; font-family: Arial, sans-serif; }
+        .navbar-cfe { background-color: #006633; color: white; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg navbar-cfe px-4 py-3">
+        <div class="container-fluid">
+            <a class="navbar-brand text-white fw-bold" href="/dashboard">
+                <i class="fas fa-arrow-left me-2"></i> Volver al Dashboard
+            </a>
+        </div>
+    </nav>
+
+    <div class="container mt-4">
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <div class="alert alert-success alert-dismissible fade show" role="alert">
+              {{ messages[0] }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+          {% endif %}
+        {% endwith %}
+
+        <div class="card shadow-sm p-4">
+            <h3 class="mb-3 text-success"><i class="fas fa-id-card me-2"></i> Gestión de Archivos CAMCAyPL por Zona</h3>
+            <p class="text-muted mb-4">Sube y administra los archivos correspondientes a CAMCAyPL para cada zona de trabajo.</p>
+
+            <!-- Selector de Zona -->
+            <form method="GET" action="/gestionar_camcaypl" class="row g-3 align-items-center mb-4 p-3 bg-light border rounded">
+                <div class="col-md-auto">
+                    <label class="form-label fw-bold m-0">Seleccionar Zona:</label>
+                </div>
+                <div class="col-md-5">
+                    <select name="zona_seleccionada" class="form-select" onchange="this.form.submit()">
+                        {% for z in todas_las_zonas %}
+                            <option value="{{ z }}" {% if zona_seleccionada == z %}selected{% endif %}>{{ z }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </form>
+
+            <div class="alert alert-info py-2">
+                Mostrando archivos de CAMCAyPL para la zona: <strong>{{ zona_seleccionada }}</strong>
+            </div>
+
+            <!-- Formulario para subir archivo -->
+            <form action="/subir_camcaypl" method="POST" enctype="multipart/form-data" class="row g-3 mb-4 p-3 border rounded bg-white">
+                <input type="hidden" name="zona_destino" value="{{ zona_seleccionada }}">
+                <div class="col-md-8">
+                    <label class="form-label fw-bold">Archivo CAMCAyPL (PDF o Imagen):</label>
+                    <input type="file" class="form-control" name="archivo_camcaypl" required>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button type="submit" class="btn btn-success w-100"><i class="fas fa-upload me-1"></i> Subir Archivo</button>
+                </div>
+            </form>
+
+            <h5 class="fw-bold mb-3">Archivos Cargados para {{ zona_seleccionada }}:</h5>
+            <div class="table-responsive">
+                <table class="table table-hover align-middle">
+                    <thead class="table-dark" style="background-color: #006633;">
+                        <tr>
+                            <th>Nombre del Archivo</th>
+                            <th class="text-end">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in archivos_camcaypl %}
+                        <tr>
+                            <td><i class="fas fa-file-alt text-success me-2"></i> {{ item.nombre_archivo }}</td>
+                            <td class="text-end">
+                                <a href="{{ item.url_archivo }}" target="_blank" class="btn btn-sm btn-info text-dark me-1"><i class="fas fa-eye"></i> Ver</a>
+                                <a href="/eliminar_camcaypl/{{ item.id }}" class="btn btn-sm btn-danger" onclick="return confirm('¿Estás seguro de eliminar este archivo?');"><i class="fas fa-trash-alt"></i> Eliminar</a>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="2" class="text-center text-muted py-3">No hay archivos de CAMCAyPL registrados para esta zona.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

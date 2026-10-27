@@ -44,12 +44,16 @@
             <div class="col-md-2 text-center">
                 <img src="{{ url_for('static', filename='buhonombres.png') }}" alt="Búho CFE Nombres" style="max-height: 100px;" class="img-fluid">
             </div>
-            <div class="col-md-4">
-                <h3 class="fw-bold text-dark m-0">Listado de Estudiantes Registrados</h3>
-                <p class="text-muted m-0 small">Control y gestión de personal en formación</p>
+            <div class="col-md-3">
+                <h3 class="fw-bold text-dark m-0">Listado de Estudiantes</h3>
+                <p class="text-muted m-0 small">Control y gestión de personal</p>
             </div>
-            <div class="col-md-6 text-end">
+            <div class="col-md-7 text-end">
                 <div class="d-flex justify-content-end align-items-center gap-2 flex-wrap">
+                    <!-- NUEVO BOTÓN CAMCAyPL EN EL LUGAR EXACTO QUE PEDISTE -->
+                    <a href="{{ url_for('gestionar_camcaypl') }}" class="btn btn-warning btn-sm fw-bold text-dark shadow-sm">
+                        <i class="fas id-card me-1"></i> CAMCAyPL
+                    </a>
                     <a href="/registrar" class="btn btn-cfe btn-sm"><i class="fas fa-user-plus me-1"></i> Registrar Alumno</a>
                     {% if rol == 'admin' %}
                         <a href="/descargar_excel" class="btn btn-success btn-sm"><i class="fas fa-file-excel me-1"></i> Excel Oficial</a>
@@ -227,7 +231,6 @@
                                         <div class="mb-2"><label class="fw-bold text-success">INE del alumno:</label><input type="file" class="form-control form-control-sm" name="ine"></div>
                                         <div class="mb-2"><label class="fw-bold text-success">Acta de Nacimiento:</label><input type="file" class="form-control form-control-sm" name="acta_nacimiento"></div>
                                         <div class="mb-2"><label class="fw-bold text-success">Constancia de vigencia de seguros médicos:</label><input type="file" class="form-control form-control-sm" name="vigencia_imss"></div>
-                                        
                                         <div class="mb-2"><label class="fw-bold text-success">Formato de solicitud:</label><input type="file" class="form-control form-control-sm" name="formato_solicitud"></div>
 
                                         <div class="p-3 bg-light border rounded mb-2">
@@ -323,7 +326,7 @@
         </div>
     </div>
 
-    <!-- SCRIPT DE FILTRADO EN TIEMPO REAL CON LA LUPA -->
+    <!-- SCRIPT DE FILTRADO EN TIEMPO REAL -->
     <script>
         function filtrarTabla() {
             let input = document.getElementById("buscadorAlumnos");
