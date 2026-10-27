@@ -17,6 +17,7 @@ from flask import (
     url_for,
 )
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect, text
 
 import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
@@ -34,7 +35,8 @@ import cloudinary.uploader
 import cloudinary.api
 
 app = Flask(__name__)
-app.secret_key = 'clave_secreta_cfe_norma15'
+# Recomendado: define SECRET_KEY como variable de entorno en Render
+app.secret_key = os.environ.get('SECRET_KEY', 'clave_secreta_cfe_norma15')
 
 UPLOAD_FOLDER = 'static/uploads_alumnos'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
@@ -45,8 +47,18 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 cloudinary.config(
     cloud_name=os.environ.get('CLOUDINARY_CLOUD_NAME'),
     api_key=os.environ.get('CLOUDINARY_API_KEY'),
-    api_secret=os.environ.get('CLOUDINARY_API_SECRET')
+    api_secret=os.environ.get('CLOUDINARY_API_SECRET'),
+    secure=True
 )
+
+
+def subir_a_cloudinary(file):
+    """Sube un archivo a Cloudinary y regresa la URL segura (sin modificarla).
+    IMPORTANTE: en Cloudinary > Settings > Security > Restricted media types
+    debe estar DESMARCADO 'PDF and ZIP files' para que los PDF abran."""
+    resultado = cloudinary.uploader.upload(file.stream, resource_type="auto")
+    return resultado.get('secure_url')
+
 
 # ==========================================
 # CONFIGURACIÓN DE BASE DE DATOS (SQLALCHEMY)
@@ -69,7 +81,7 @@ USUARIOS_PERMITIDOS = {
     'DJ020': {'nombre': 'Xalapa', 'rol': 'seccion'},
     'DJ030': {'nombre': 'Teziutlán', 'rol': 'seccion'},
     'DJ060': {'nombre': 'Veracruz', 'rol': 'seccion'},
-    'DJO70': {'nombre': 'Papaloapan', 'rol': 'seccion'},
+    'DJ070': {'nombre': 'Papaloapan', 'rol': 'seccion'},  # corregido: antes era DJO70 (letra O)
     'DJ100': {'nombre': 'Los Tuxtlas', 'rol': 'seccion'},
     'DJ110': {'nombre': 'Coatzacoalcos', 'rol': 'seccion'},
     'DJ130': {'nombre': 'Orizaba', 'rol': 'seccion'},
@@ -191,11 +203,41 @@ def fecha_a_espanol(dt_obj):
     return f'{dia} de {mes_es} de {anio}'
 
 
+def reparar_base_datos():
+    """Agrega columnas faltantes a las tablas existentes y, en PostgreSQL,
+    sincroniza la secuencia del campo 'co'. Es seguro ejecutarlo varias veces."""
+    try:
+        inspector = inspect(db.engine)
+        for tabla in db.metadata.sorted_tables:
+            if not inspector.has_table(tabla.name):
+                continue
+            existentes = {c['name'] for c in inspector.get_columns(tabla.name)}
+            for col in tabla.columns:
+                if col.name not in existentes:
+                    tipo = col.type.compile(dialect=db.engine.dialect)
+                    with db.engine.begin() as conn:
+                        conn.execute(text(f'ALTER TABLE {tabla.name} ADD COLUMN {col.name} {tipo}'))
+                    print(f'[reparar_base_datos] Columna agregada: {tabla.name}.{col.name}')
+    except Exception as e:
+        print(f'[reparar_base_datos] No se pudieron revisar columnas: {e}')
+
+    try:
+        if db.engine.dialect.name == 'postgresql':
+            with db.engine.begin() as conn:
+                conn.execute(text(
+                    "SELECT setval(pg_get_serial_sequence('registros', 'co'), "
+                    "COALESCE((SELECT MAX(co) FROM registros), 0) + 1, false)"
+                ))
+    except Exception as e:
+        print(f'[reparar_base_datos] No se pudo sincronizar la secuencia: {e}')
+
+
 def init_db():
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)
     with app.app_context():
         db.create_all()
+        reparar_base_datos()
 
 
 @app.route('/')
@@ -252,49 +294,55 @@ def registrar():
         return redirect(url_for('login'))
 
     if request.method == 'POST':
-        seccion = session['usuario']
-        nombre_alumno = request.form['nombre_alumno']
-        tipo_apoyo = request.form['tipo_apoyo']
-        area = request.form['area']
-        institucion = request.form['institucion']
-        carrera = request.form['carrera']
-        fecha_inicio_str = request.form['fecha_inicio']
-        fecha_fin_str = request.form['fecha_fin']
-        horas = int(request.form['horas'])
-        es_familiar = request.form.get('es_familiar', 'No')
+        try:
+            seccion = session['usuario']
+            nombre_alumno = request.form['nombre_alumno']
+            tipo_apoyo = request.form['tipo_apoyo']
+            area = request.form['area']
+            institucion = request.form['institucion']
+            carrera = request.form['carrera']
+            fecha_inicio_str = request.form['fecha_inicio']
+            fecha_fin_str = request.form['fecha_fin']
+            horas = int(request.form['horas'])
+            es_familiar = request.form.get('es_familiar', 'No')
 
-        hoy = datetime.now().date()
-        f_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
-        estatus = 'Finalizado' if hoy > f_fin else 'Activo'
+            hoy = datetime.now().date()
+            f_fin = datetime.strptime(fecha_fin_str, '%Y-%m-%d').date()
+            estatus = 'Finalizado' if hoy > f_fin else 'Activo'
 
-        if es_familiar == 'Sí':
-            nombre_familiar = request.form.get('nombre_familiar', '')
-            parentesco_familiar = request.form.get('parentesco_familiar', '')
-            monto_apoyo = request.form.get('monto_apoyo', '2,580.86')
-            tipo_remuneracion = f"Apoyo económico: ${monto_apoyo} pesos"
-        else:
-            nombre_familiar = 'N/A'
-            parentesco_familiar = 'N/A'
-            tipo_remuneracion = 'Título gratuito'
+            if es_familiar == 'Sí':
+                nombre_familiar = request.form.get('nombre_familiar', '')
+                parentesco_familiar = request.form.get('parentesco_familiar', '')
+                monto_apoyo = request.form.get('monto_apoyo', '2,580.86')
+                tipo_remuneracion = f"Apoyo económico: ${monto_apoyo} pesos"
+            else:
+                nombre_familiar = 'N/A'
+                parentesco_familiar = 'N/A'
+                tipo_remuneracion = 'Título gratuito'
 
-        nuevo_registro = Registro(
-            seccion=seccion,
-            nombre_alumno=nombre_alumno,
-            tipo_apoyo=tipo_apoyo,
-            area=area,
-            institucion=institucion,
-            carrera=carrera,
-            fecha_inicio=fecha_inicio_str,
-            fecha_fin=fecha_fin_str,
-            estatus=estatus,
-            horas=horas,
-            es_familiar=es_familiar,
-            nombre_familiar=nombre_familiar,
-            parentesco_familiar=parentesco_familiar,
-            tipo_remuneracion=tipo_remuneracion
-        )
-        db.session.add(nuevo_registro)
-        db.session.commit()
+            nuevo_registro = Registro(
+                seccion=seccion,
+                nombre_alumno=nombre_alumno,
+                tipo_apoyo=tipo_apoyo,
+                area=area,
+                institucion=institucion,
+                carrera=carrera,
+                fecha_inicio=fecha_inicio_str,
+                fecha_fin=fecha_fin_str,
+                estatus=estatus,
+                horas=horas,
+                es_familiar=es_familiar,
+                nombre_familiar=nombre_familiar,
+                parentesco_familiar=parentesco_familiar,
+                tipo_remuneracion=tipo_remuneracion
+            )
+            db.session.add(nuevo_registro)
+            db.session.commit()
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception('Error al registrar alumno')
+            flash(f'Error al guardar: {str(e)[:300]}')
+            return redirect(url_for('registrar'))
 
         flash('Estudiante registrado exitosamente.')
         return redirect(url_for('dashboard'))
@@ -405,19 +453,20 @@ def subir_archivos(co):
         'formato_solicitud': 'archivo_formato_solicitud',
     }
 
-    for input_name, db_col in campos_archivos.items():
-        file = request.files.get(input_name)
-        if file and file.filename != '':
-            # Subida corregida agregando fl_attachment o URL limpia para evitar error 401
-            upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
-            file_url = upload_result.get('secure_url')
-            if file_url and '/image/upload/' in file_url:
-                file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
-            
-            setattr(alumno, db_col, file_url)
+    try:
+        for input_name, db_col in campos_archivos.items():
+            file = request.files.get(input_name)
+            if file and file.filename != '':
+                file_url = subir_a_cloudinary(file)
+                setattr(alumno, db_col, file_url)
 
-    db.session.commit()
-    flash('Archivos subidos exitosamente.')
+        db.session.commit()
+        flash('Archivos subidos exitosamente.')
+    except Exception as e:
+        db.session.rollback()
+        app.logger.exception('Error al subir archivos')
+        flash(f'Error al subir archivos: {str(e)[:300]}')
+
     return redirect(url_for('dashboard'))
 
 
@@ -670,6 +719,7 @@ def generar_convenio_gratuito(co):
 
 # ==========================================
 # GESTIÓN DE OFICIOS DE PAGO POR ZONA
+# (Se guardan en disco local de Render: se borran en cada deploy)
 # ==========================================
 @app.route('/gestionar_oficios_zona', methods=['GET'])
 def gestionar_oficios_zona():
@@ -708,24 +758,18 @@ def gestionar_oficios_zona():
 def subir_oficio_zona():
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    
+
     zona_destino = request.form.get('zona_destino')
     file = request.files.get('archivo_oficio_zona')
-    
+
     if file and file.filename != '':
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
-        file_url = upload_result.get('secure_url')
-        if file_url and '/image/upload/' in file_url:
-            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
-        
         carpeta_zona = os.path.join('static', 'oficios_pago_zona', zona_destino)
         os.makedirs(carpeta_zona, exist_ok=True)
         filename_seguro = secure_filename(file.filename)
-        file.seek(0)
         file.save(os.path.join(carpeta_zona, filename_seguro))
-        
+
         flash('Oficio de pago subido correctamente.')
-        
+
     return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona_destino))
 
 
@@ -733,12 +777,12 @@ def subir_oficio_zona():
 def eliminar_oficio_zona(zona, nombre_archivo):
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    
+
     filepath = os.path.join('static', 'oficios_pago_zona', zona, nombre_archivo)
     if os.path.exists(filepath):
         os.remove(filepath)
         flash('Oficio eliminado correctamente.')
-    
+
     return redirect(url_for('gestionar_oficios_zona', zona_seleccionada=zona))
 
 
@@ -771,27 +815,28 @@ def gestionar_camcaypl():
 def subir_camcaypl():
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    
+
     zona_destino = request.form.get('zona_destino')
     file = request.files.get('archivo_camcaypl')
-    
-    if file and file.filename != '':
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
-        file_url = upload_result.get('secure_url')
-        if file_url and '/image/upload/' in file_url:
-            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
-            
-        filename_seguro = secure_filename(file.filename)
 
-        nuevo_archivo = CamcaYPlZona(
-            zona=zona_destino,
-            nombre_archivo=filename_seguro,
-            url_archivo=file_url
-        )
-        db.session.add(nuevo_archivo)
-        db.session.commit()
-        flash('Archivo de CAMCAyPL subido correctamente.')
-        
+    if file and file.filename != '':
+        try:
+            file_url = subir_a_cloudinary(file)
+            filename_seguro = secure_filename(file.filename)
+
+            nuevo_archivo = CamcaYPlZona(
+                zona=zona_destino,
+                nombre_archivo=filename_seguro,
+                url_archivo=file_url
+            )
+            db.session.add(nuevo_archivo)
+            db.session.commit()
+            flash('Archivo de CAMCAyPL subido correctamente.')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception('Error al subir CAMCAyPL')
+            flash(f'Error al subir el archivo: {str(e)[:300]}')
+
     return redirect(url_for('gestionar_camcaypl', zona_seleccionada=zona_destino))
 
 
@@ -799,7 +844,7 @@ def subir_camcaypl():
 def eliminar_camcaypl(id_archivo):
     if 'usuario' not in session:
         return redirect(url_for('login'))
-    
+
     archivo = CamcaYPlZona.query.get(id_archivo)
     if archivo:
         zona_destino = archivo.zona
@@ -807,7 +852,7 @@ def eliminar_camcaypl(id_archivo):
         db.session.commit()
         flash('Archivo de CAMCAyPL eliminado correctamente.')
         return redirect(url_for('gestionar_camcaypl', zona_seleccionada=zona_destino))
-    
+
     return redirect(url_for('gestionar_camcaypl'))
 
 
@@ -830,19 +875,20 @@ def subir_reporte_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_reporte')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
-        file_url = upload_result.get('secure_url')
-        if file_url and '/image/upload/' in file_url:
-            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
-
-        existente = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
-        if existente:
-            existente.nombre_archivo = file_url
-        else:
-            nuevo = ReporteMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
-            db.session.add(nuevo)
-        db.session.commit()
-        flash(f'Reporte de {mes_anio} subido correctamente.')
+        try:
+            file_url = subir_a_cloudinary(file)
+            existente = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
+            if existente:
+                existente.nombre_archivo = file_url
+            else:
+                nuevo = ReporteMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
+                db.session.add(nuevo)
+            db.session.commit()
+            flash(f'Reporte de {mes_anio} subido correctamente.')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception('Error al subir reporte')
+            flash(f'Error al subir el reporte: {str(e)[:300]}')
     return redirect(url_for('gestionar_reportes', co=co))
 
 
@@ -874,19 +920,20 @@ def subir_recibo_alumno_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_recibo_alumno')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
-        file_url = upload_result.get('secure_url')
-        if file_url and '/image/upload/' in file_url:
-            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
-
-        existente = ReciboAlumnoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
-        if existente:
-            existente.nombre_archivo = file_url
-        else:
-            nuevo = ReciboAlumnoMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
-            db.session.add(nuevo)
-        db.session.commit()
-        flash(f'Recibo del alumno de {mes_anio} subido correctamente.')
+        try:
+            file_url = subir_a_cloudinary(file)
+            existente = ReciboAlumnoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
+            if existente:
+                existente.nombre_archivo = file_url
+            else:
+                nuevo = ReciboAlumnoMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
+                db.session.add(nuevo)
+            db.session.commit()
+            flash(f'Recibo del alumno de {mes_anio} subido correctamente.')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception('Error al subir recibo del alumno')
+            flash(f'Error al subir el recibo: {str(e)[:300]}')
     return redirect(url_for('gestionar_recibos_alumno', co=co))
 
 
@@ -918,19 +965,20 @@ def subir_recibo_pago_mes(co):
     mes_anio = request.form.get('mes_anio')
     file = request.files.get('archivo_recibo')
     if file and file.filename != '' and mes_anio:
-        upload_result = cloudinary.uploader.upload(file.stream, resource_type="auto")
-        file_url = upload_result.get('secure_url')
-        if file_url and '/image/upload/' in file_url:
-            file_url = file_url.replace('/image/upload/', '/image/upload/fl_attachment/')
-
-        existente = ReciboPagoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
-        if existente:
-            existente.nombre_archivo = file_url
-        else:
-            nuevo = ReciboPagoMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
-            db.session.add(nuevo)
-        db.session.commit()
-        flash(f'Oficio de pago de {mes_anio} subido correctamente.')
+        try:
+            file_url = subir_a_cloudinary(file)
+            existente = ReciboPagoMensual.query.filter_by(alumno_co=co, mes_anio=mes_anio).first()
+            if existente:
+                existente.nombre_archivo = file_url
+            else:
+                nuevo = ReciboPagoMensual(alumno_co=co, mes_anio=mes_anio, nombre_archivo=file_url)
+                db.session.add(nuevo)
+            db.session.commit()
+            flash(f'Oficio de pago de {mes_anio} subido correctamente.')
+        except Exception as e:
+            db.session.rollback()
+            app.logger.exception('Error al subir oficio de pago')
+            flash(f'Error al subir el oficio: {str(e)[:300]}')
     return redirect(url_for('gestionar_recibos_pago', co=co))
 
 
@@ -1202,28 +1250,28 @@ def generar_reporte_todos_desde_archivo(registros, archivo_plantilla):
 
     for i, r in enumerate(sorted(registros, key=lambda x: x.co)):
         fila = 4 + i
-        
+
         if r.es_familiar == 'Sí':
             info_familiar = f"Sí ({r.parentesco_familiar}: {r.nombre_familiar})" if r.nombre_familiar else f"Sí ({r.parentesco_familiar})"
         else:
             info_familiar = "No"
 
         valores = [
-            r.co,                           
-            r.nombre_alumno,                
-            r.tipo_apoyo,                   
-            r.area,                         
-            r.institucion,                  
-            r.carrera,                      
-            _fecha_corta(r.fecha_inicio),   
-            _fecha_corta(r.fecha_fin),      
-            r.estatus,                      
-            r.horas,                        
-            r.es_familiar,                  
-            info_familiar,                  
-            _monto(r.tipo_remuneracion),    
+            r.co,
+            r.nombre_alumno,
+            r.tipo_apoyo,
+            r.area,
+            r.institucion,
+            r.carrera,
+            _fecha_corta(r.fecha_inicio),
+            _fecha_corta(r.fecha_fin),
+            r.estatus,
+            r.horas,
+            r.es_familiar,
+            info_familiar,
+            _monto(r.tipo_remuneracion),
         ]
-        
+
         for col_idx, valor in enumerate(valores, start=1):
             celda = ws.cell(row=fila, column=col_idx)
             celda.value = valor
