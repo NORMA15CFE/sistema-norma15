@@ -526,6 +526,7 @@ def seleccionar_mes_orden(co):
 
 @app.route('/generar_orden_pago/<int:co>', methods=['POST'])
 def generar_orden_pago(co):
+    import urllib.request
     if 'usuario' not in session:
         return redirect(url_for('login'))
 
@@ -558,6 +559,7 @@ def generar_orden_pago(co):
     x_servicio = 'X' if 'servicio' in tipo_apoyo or ('práctica' not in tipo_apoyo and 'residencia' not in tipo_apoyo) else ''
     x_residencias = 'X' if 'residencia' in tipo_apoyo or 'estadía' in tipo_apoyo or 'estadia' in tipo_apoyo else ''
 
+    # BUSCAR PLANTILLA EN MAYÚSCULAS TAL COMO LO PEDISTE
     plantilla_path = 'RECIBO PAGO.docx'
     if not os.path.exists(plantilla_path):
         flash('Error: No se encontró el archivo "RECIBO PAGO.docx".')
@@ -617,16 +619,50 @@ def generar_orden_pago(co):
         for row in table.rows:
             procesar_celdas(row.cells)
 
-    output_filename = f'Recibo_Pago_{nombre_alumno.replace(" ", "_")}.docx'
-    doc.save(output_filename)
+    docx_filename = f'Recibo_Pago_{nombre_alumno.replace(" ", "_")}.docx'
+    doc.save(docx_filename)
 
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        zf.write(output_filename, arcname=output_filename)
+        # 1. Agregar el documento de orden de pago generado
+        zf.write(docx_filename, arcname=docx_filename)
+
+        # 2. Adjuntar INE si existe
+        if r.archivo_ine:
+            try:
+                with urllib.request.urlopen(r.archivo_ine) as response:
+                    zf.writestr(f'INE_{nombre_alumno.replace(" ", "_")}.pdf', response.read())
+            except Exception:
+                pass
+
+        # 3. Adjuntar Formato de Solicitud (Formato de pago) si existe
+        if r.archivo_formato_solicitud:
+            try:
+                with urllib.request.urlopen(r.archivo_formato_solicitud) as response:
+                    zf.writestr(f'Formato_Solicitud_{nombre_alumno.replace(" ", "_")}.pdf', response.read())
+            except Exception:
+                pass
+
+        # 4. Adjuntar CLABE interbancaria si existe
+        if r.archivo_clabe:
+            try:
+                with urllib.request.urlopen(r.archivo_clabe) as response:
+                    zf.writestr(f'CLABE_{nombre_alumno.replace(" ", "_")}.pdf', response.read())
+            except Exception:
+                pass
+
+        # 5. Adjuntar Reporte mensual del alumno para el mes seleccionado si existe
+        reporte_mensual_obj = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_seleccionado).first()
+        if reporte_mensual_obj and reporte_mensual_obj.nombre_archivo:
+            try:
+                with urllib.request.urlopen(reporte_mensual_obj.nombre_archivo) as response:
+                    zf.writestr(f'Reporte_Mensual_{mes_seleccionado.replace(" ", "_")}_{nombre_alumno.replace(" ", "_")}.pdf', response.read())
+            except Exception:
+                pass
 
     memory_file.seek(0)
-    if os.path.exists(output_filename):
-        os.remove(output_filename)
+    if os.path.exists(docx_filename):
+        os.remove(docx_filename)
 
     return send_file(
         memory_file,
@@ -1139,8 +1175,11 @@ def generar_reporte_desde_archivo(registros, archivo_plantilla):
     mes_reportado = mes_es.upper()
     fecha_elab = f"Xalapa, Ver. a {ahora.day} de {mes_es} del {ahora.year}"
 
+    # FILTRAR UNICAMENTE ACTIVOS PARA EL REPORTE OFICIAL
+    registros_activos = [r for r in registros if r.estatus == 'Activo']
+
     bloques = {}
-    for r in sorted(registros, key=lambda x: x.co):
+    for r in sorted(registros_activos, key=lambda x: x.co):
         bloques.setdefault((r.co - 1) // FILAS_POR_HOJA, []).append(r)
     if not bloques:
         bloques = {0: []}
