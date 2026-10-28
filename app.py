@@ -146,6 +146,7 @@ class Registro(db.Model):
     archivo_acta_nacimiento = db.Column(db.String)
     archivo_vigencia_imss = db.Column(db.String)
     archivo_formato_solicitud = db.Column(db.String)
+    archivo_carta_liberacion = db.Column(db.String)
 
     def __getitem__(self, index):
         columnas = [
@@ -157,7 +158,7 @@ class Registro(db.Model):
             self.archivo_buena_conducta, self.archivo_ine, self.archivo_reporte_mensual,
             self.archivo_recibo_pago, self.archivo_clabe, self.archivo_contrato,
             self.motivo_baja, self.archivo_acta_nacimiento, self.archivo_vigencia_imss,
-            self.archivo_formato_solicitud
+            self.archivo_formato_solicitud, self.archivo_carta_liberacion
         ]
         return columnas[index]
 
@@ -436,6 +437,7 @@ def subir_archivos(co):
         'acta_nacimiento': 'archivo_acta_nacimiento',
         'vigencia_imss': 'archivo_vigencia_imss',
         'formato_solicitud': 'archivo_formato_solicitud',
+        'carta_liberacion': 'archivo_carta_liberacion',
     }
 
     try:
@@ -470,6 +472,7 @@ def eliminar_archivo(co, campo):
         'acta_nacimiento': 'archivo_acta_nacimiento',
         'vigencia_imss': 'archivo_vigencia_imss',
         'formato_solicitud': 'archivo_formato_solicitud',
+        'carta_liberacion': 'archivo_carta_liberacion',
     }
 
     if campo not in columnas_validas:
@@ -559,7 +562,6 @@ def generar_orden_pago(co):
     x_servicio = 'X' if 'servicio' in tipo_apoyo or ('práctica' not in tipo_apoyo and 'residencia' not in tipo_apoyo) else ''
     x_residencias = 'X' if 'residencia' in tipo_apoyo or 'estadía' in tipo_apoyo or 'estadia' in tipo_apoyo else ''
 
-    # BUSCAR PLANTILLA EN MAYÚSCULAS TAL COMO LO PEDISTE
     plantilla_path = 'RECIBO PAGO.docx'
     if not os.path.exists(plantilla_path):
         flash('Error: No se encontró el archivo "RECIBO PAGO.docx".')
@@ -635,15 +637,7 @@ def generar_orden_pago(co):
             except Exception:
                 pass
 
-        # 3. Adjuntar Formato de Solicitud (Formato de pago) si existe
-        if r.archivo_formato_solicitud:
-            try:
-                with urllib.request.urlopen(r.archivo_formato_solicitud) as response:
-                    zf.writestr(f'Formato_Solicitud_{nombre_alumno.replace(" ", "_")}.pdf', response.read())
-            except Exception:
-                pass
-
-        # 4. Adjuntar CLABE interbancaria si existe
+        # 3. Adjuntar CLABE interbancaria si existe
         if r.archivo_clabe:
             try:
                 with urllib.request.urlopen(r.archivo_clabe) as response:
@@ -651,12 +645,20 @@ def generar_orden_pago(co):
             except Exception:
                 pass
 
-        # 5. Adjuntar Reporte mensual del alumno para el mes seleccionado si existe
+        # 4. Adjuntar Reporte mensual del alumno para el mes seleccionado si existe
         reporte_mensual_obj = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_seleccionado).first()
         if reporte_mensual_obj and reporte_mensual_obj.nombre_archivo:
             try:
                 with urllib.request.urlopen(reporte_mensual_obj.nombre_archivo) as response:
                     zf.writestr(f'Reporte_Mensual_{mes_seleccionado.replace(" ", "_")}_{nombre_alumno.replace(" ", "_")}.pdf', response.read())
+            except Exception:
+                pass
+
+        # 5. Adjuntar Carta de liberación si existe
+        if r.archivo_carta_liberacion:
+            try:
+                with urllib.request.urlopen(r.archivo_carta_liberacion) as response:
+                    zf.writestr(f'Carta_Liberacion_{nombre_alumno.replace(" ", "_")}.pdf', response.read())
             except Exception:
                 pass
 
