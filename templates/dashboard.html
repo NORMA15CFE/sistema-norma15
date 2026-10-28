@@ -50,7 +50,6 @@
             </div>
             <div class="col-md-7 text-end">
                 <div class="d-flex justify-content-end align-items-center gap-2 flex-wrap">
-                    <!-- NUEVO BOTÓN CAMCAyPL EN EL LUGAR EXACTO QUE PEDISTE -->
                     <a href="{{ url_for('gestionar_camcaypl') }}" class="btn btn-warning btn-sm fw-bold text-dark shadow-sm">
                         <i class="fas id-card me-1"></i> CAMCAyPL
                     </a>
@@ -232,6 +231,7 @@
                                         <div class="mb-2"><label class="fw-bold text-success">Acta de Nacimiento:</label><input type="file" class="form-control form-control-sm" name="acta_nacimiento"></div>
                                         <div class="mb-2"><label class="fw-bold text-success">Constancia de vigencia de seguros médicos:</label><input type="file" class="form-control form-control-sm" name="vigencia_imss"></div>
                                         <div class="mb-2"><label class="fw-bold text-success">Formato de solicitud:</label><input type="file" class="form-control form-control-sm" name="formato_solicitud"></div>
+                                        <div class="mb-2"><label class="fw-bold text-success">Carta de liberación:</label><input type="file" class="form-control form-control-sm" name="carta_liberacion"></div>
 
                                         <div class="p-3 bg-light border rounded mb-2">
                                             <label class="fw-bold text-success mb-1">CLABE Interbancaria:</label>
@@ -293,6 +293,10 @@
                                             {% if r[28] %}<a href="/eliminar_archivo/{{ r[0] }}/vigencia_imss" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
                                         <li class="list-group-item d-flex justify-content-between align-items-center">
+                                            <span><strong>Carta de Liberación:</strong> {% if r[30] %}<a href="{{ r[30] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %}</span>
+                                            {% if r[30] %}<a href="/eliminar_archivo/{{ r[0] }}/carta_liberacion" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
+                                        </li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center">
                                             <span><strong>CLABE Interbancaria:</strong> {% if r[24] %}<a href="{{ r[24] }}" target="_blank" class="text-decoration-none">Ver archivo</a>{% else %}<span class="text-muted">No cargado</span>{% endif %} <br><small class="text-muted">Banco: {{ r[15] or 'N/A' }} | CLABE: {{ r[16] or 'N/A' }}</small></span>
                                             {% if r[24] or r[16] %}<a href="/eliminar_archivo/{{ r[0] }}/clabe" class="btn btn-outline-danger btn-sm py-0" onclick="return confirm('¿Eliminar?');"><i class="fas fa-trash-alt"></i> Eliminar</a>{% endif %}
                                         </li>
@@ -304,9 +308,9 @@
 
                                     <h6 class="text-success fw-bold mt-3 mb-2">Gestiones Mensuales:</h6>
                                     <ul class="list-group">
-                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>1. Reporte Mensual:</strong> <a href="/gestionar_reportes/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></span></li>
-                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>2. Recibo Alumno:</strong> <a href="/gestionar_recibos_alumno/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></span></li>
-                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>3. Oficio Empresa:</strong> <a href="/gestionar_recibos_pago/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></span></li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>1. Reporte Mensual:</strong></span> <a href="/gestionar_reportes/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>2. Recibo Alumno:</strong></span> <a href="/gestionar_recibos_alumno/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></li>
+                                        <li class="list-group-item d-flex justify-content-between align-items-center"><span><strong>3. Oficio Empresa:</strong></span> <a href="/gestionar_recibos_pago/{{ r[0] }}" class="text-decoration-none">Gestionar por mes</a></li>
                                     </ul>
                                 </div>
                                 <div class="modal-footer">
