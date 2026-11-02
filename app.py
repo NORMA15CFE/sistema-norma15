@@ -875,7 +875,7 @@ def eliminar_camcaypl(id_archivo):
 
 
 # ==========================================
-# GESTIÓN DE REPORTES Y RECIBOS MENSUALES
+# GESTIÓN DE REPORTES Y RECIBOS MENSUALES (CORREGIDAS)
 # ==========================================
 @app.route('/gestionar_reportes/<int:co>', methods=['GET'])
 def gestionar_reportes(co):
