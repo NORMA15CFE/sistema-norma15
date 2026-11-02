@@ -147,6 +147,7 @@ class Registro(db.Model):
     archivo_vigencia_imss = db.Column(db.String)
     archivo_formato_solicitud = db.Column(db.String)
     archivo_carta_liberacion = db.Column(db.String)
+    archivo_credencial = db.Column(db.String)
 
     def __getitem__(self, index):
         columnas = [
@@ -158,7 +159,7 @@ class Registro(db.Model):
             self.archivo_buena_conducta, self.archivo_ine, self.archivo_reporte_mensual,
             self.archivo_recibo_pago, self.archivo_clabe, self.archivo_contrato,
             self.motivo_baja, self.archivo_acta_nacimiento, self.archivo_vigencia_imss,
-            self.archivo_formato_solicitud, self.archivo_carta_liberacion
+            self.archivo_formato_solicitud, self.archivo_carta_liberacion, self.archivo_credencial
         ]
         return columnas[index]
 
@@ -201,6 +202,27 @@ def fecha_a_espanol(dt_obj):
     anio = dt_obj.strftime('%Y')
     mes_es = MESES_ESP.get(mes_en, mes_en)
     return f'{dia} de {mes_es} de {anio}'
+
+
+def obtener_meses_alumno(r):
+    try:
+        dt_actual = datetime.strptime(r.fecha_inicio, '%Y-%m-%d').replace(day=1)
+        dt_final = datetime.strptime(r.fecha_fin, '%Y-%m-%d').replace(day=1)
+    except:
+        dt_actual = datetime(2026, 9, 1)
+        dt_final = datetime(2027, 3, 1)
+
+    meses = []
+    while dt_actual <= dt_final:
+        mes_en = dt_actual.strftime('%B')
+        mes_es = MESES_ESP.get(mes_en, mes_en).capitalize()
+        anio = dt_actual.strftime('%Y')
+        meses.append(f'{mes_es} {anio}')
+        if dt_actual.month == 12:
+            dt_actual = dt_actual.replace(year=dt_actual.year + 1, month=1)
+        else:
+            dt_actual = dt_actual.replace(month=dt_actual.month + 1)
+    return meses
 
 
 def reparar_base_datos():
@@ -438,6 +460,7 @@ def subir_archivos(co):
         'vigencia_imss': 'archivo_vigencia_imss',
         'formato_solicitud': 'archivo_formato_solicitud',
         'carta_liberacion': 'archivo_carta_liberacion',
+        'credencial': 'archivo_credencial',
     }
 
     try:
@@ -473,6 +496,7 @@ def eliminar_archivo(co, campo):
         'vigencia_imss': 'archivo_vigencia_imss',
         'formato_solicitud': 'archivo_formato_solicitud',
         'carta_liberacion': 'archivo_carta_liberacion',
+        'credencial': 'archivo_credencial',
     }
 
     if campo not in columnas_validas:
@@ -503,27 +527,7 @@ def seleccionar_mes_orden(co):
         flash('Estudiante no encontrado.')
         return redirect(url_for('dashboard'))
 
-    try:
-        dt_actual = datetime.strptime(r.fecha_inicio, '%Y-%m-%d').replace(day=1)
-        dt_final = datetime.strptime(r.fecha_fin, '%Y-%m-%d').replace(day=1)
-    except:
-        dt_actual = datetime(2026, 9, 1)
-        dt_final = datetime(2027, 3, 1)
-
-    meses_disponibles = []
-    while dt_actual <= dt_final:
-        mes_en = dt_actual.strftime('%B')
-        mes_es = MESES_ESP.get(mes_en, mes_en).capitalize()
-        anio = dt_actual.strftime('%Y')
-        meses_disponibles.append({
-            'valor': f'{mes_es} {anio}',
-            'texto': f'{mes_es} {anio}',
-        })
-        if dt_actual.month == 12:
-            dt_actual = dt_actual.replace(year=dt_actual.year + 1, month=1)
-        else:
-            dt_actual = dt_actual.replace(month=dt_actual.month + 1)
-
+    meses_disponibles = [{'valor': m, 'texto': m} for m in obtener_meses_alumno(r)]
     return render_template('seleccionar_mes.html', alumno=r, meses=meses_disponibles)
 
 
@@ -626,10 +630,8 @@ def generar_orden_pago(co):
 
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-        # 1. Agregar el documento de orden de pago generado
         zf.write(docx_filename, arcname=docx_filename)
 
-        # 2. Adjuntar INE si existe
         if r.archivo_ine:
             try:
                 with urllib.request.urlopen(r.archivo_ine) as response:
@@ -637,7 +639,6 @@ def generar_orden_pago(co):
             except Exception:
                 pass
 
-        # 3. Adjuntar CLABE interbancaria si existe
         if r.archivo_clabe:
             try:
                 with urllib.request.urlopen(r.archivo_clabe) as response:
@@ -645,7 +646,6 @@ def generar_orden_pago(co):
             except Exception:
                 pass
 
-        # 4. Adjuntar Reporte mensual del alumno para el mes seleccionado si existe
         reporte_mensual_obj = ReporteMensual.query.filter_by(alumno_co=co, mes_anio=mes_seleccionado).first()
         if reporte_mensual_obj and reporte_mensual_obj.nombre_archivo:
             try:
@@ -654,7 +654,6 @@ def generar_orden_pago(co):
             except Exception:
                 pass
 
-        # 5. Adjuntar Carta de liberación si existe
         if r.archivo_carta_liberacion:
             try:
                 with urllib.request.urlopen(r.archivo_carta_liberacion) as response:
@@ -883,8 +882,12 @@ def gestionar_reportes(co):
     if 'usuario' not in session:
         return redirect(url_for('login'))
     r = Registro.query.get(co)
+    if not r:
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
     reportes_subidos = ReporteMensual.query.filter_by(alumno_co=co).all()
-    return render_template('gestionar_reportes.html', alumno=r, reportes_subidos=reportes_subidos, meses_disponibles=[])
+    meses_disponibles = obtener_meses_alumno(r)
+    return render_template('gestionar_reportes.html', alumno=r, reportes_subidos=reportes_subidos, meses_disponibles=meses_disponibles)
 
 
 @app.route('/subir_reporte_mes/<int:co>', methods=['POST'])
@@ -927,8 +930,12 @@ def gestionar_recibos_alumno(co):
     if 'usuario' not in session:
         return redirect(url_for('login'))
     r = Registro.query.get(co)
+    if not r:
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
     recibos_subidos = ReciboAlumnoMensual.query.filter_by(alumno_co=co).all()
-    return render_template('gestionar_recibos_alumno.html', alumno=r, recibos_subidos=recibos_subidos, meses_disponibles=[])
+    meses_disponibles = obtener_meses_alumno(r)
+    return render_template('gestionar_recibos_alumno.html', alumno=r, recibos_subidos=recibos_subidos, meses_disponibles=meses_disponibles)
 
 
 @app.route('/subir_recibo_alumno_mes/<int:co>', methods=['POST'])
@@ -971,8 +978,12 @@ def gestionar_recibos_pago(co):
     if 'usuario' not in session:
         return redirect(url_for('login'))
     r = Registro.query.get(co)
+    if not r:
+        flash('Estudiante no encontrado.')
+        return redirect(url_for('dashboard'))
     recibos_subidos = ReciboPagoMensual.query.filter_by(alumno_co=co).all()
-    return render_template('gestionar_recibos_pago.html', alumno=r, recibos_subidos=recibos_subidos, meses_disponibles=[])
+    meses_disponibles = obtener_meses_alumno(r)
+    return render_template('gestionar_recibos_pago.html', alumno=r, recibos_subidos=recibos_subidos, meses_disponibles=meses_disponibles)
 
 
 @app.route('/subir_recibo_pago_mes/<int:co>', methods=['POST'])
@@ -1177,12 +1188,24 @@ def generar_reporte_desde_archivo(registros, archivo_plantilla):
     mes_reportado = mes_es.upper()
     fecha_elab = f"Xalapa, Ver. a {ahora.day} de {mes_es} del {ahora.year}"
 
-    # FILTRAR UNICAMENTE ACTIVOS PARA EL REPORTE OFICIAL
+    # FILTRAR UNICAMENTE ACTIVOS
     registros_activos = [r for r in registros if r.estatus == 'Activo']
 
+    # ORDENAMIENTO ESTRICTO: PRIMERO OFICINAS DIVISIONALES, DESPUÉS LAS DEMÁS ZONAS
+    def clave_orden(r):
+        zona = r.seccion.strip()
+        if zona.lower() == 'oficinas divisionales':
+            return (0, zona.lower(), r.co)
+        else:
+            return (1, zona.lower(), r.co)
+
+    registros_ordenados = sorted(registros_activos, key=clave_orden)
+
     bloques = {}
-    for r in sorted(registros_activos, key=lambda x: x.co):
-        bloques.setdefault((r.co - 1) // FILAS_POR_HOJA, []).append(r)
+    for idx, r in enumerate(registros_ordenados):
+        num_bloque = idx // FILAS_POR_HOJA
+        bloques.setdefault(num_bloque, []).append(r)
+
     if not bloques:
         bloques = {0: []}
     claves = sorted(bloques)
@@ -1211,7 +1234,7 @@ def generar_reporte_desde_archivo(registros, archivo_plantilla):
             for col in range(3, 15):
                 ws.cell(row=fila, column=col).value = None
 
-        for i, r in enumerate(sorted(bloques[k], key=lambda x: x.co)):
+        for i, r in enumerate(bloques[k]):
             fila = FILA_INICIAL + i
             valores = [
                 r.co,
