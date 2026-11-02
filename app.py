@@ -527,8 +527,9 @@ def seleccionar_mes_orden(co):
         flash('Estudiante no encontrado.')
         return redirect(url_for('dashboard'))
 
-    meses_disponibles = [{'valor': m, 'texto': m} for m in obtener_meses_alumno(r)]
-    return render_template('seleccionar_mes.html', alumno=r, meses=meses_disponibles)
+    lista_meses = obtener_meses_alumno(r)
+    meses_disponibles = [{'valor': m, 'texto': m} for m in lista_meses]
+    return render_template('seleccionar_mes.html', alumno=r, meses=meses_disponibles, meses_disponibles=lista_meses)
 
 
 @app.route('/generar_orden_pago/<int:co>', methods=['POST'])
@@ -875,7 +876,7 @@ def eliminar_camcaypl(id_archivo):
 
 
 # ==========================================
-# GESTIÓN DE REPORTES Y RECIBOS MENSUALES (CORREGIDAS)
+# GESTIÓN DE REPORTES Y RECIBOS MENSUALES (TOTALMENTE COMPATIBLES CON AMBAS VARIABLES)
 # ==========================================
 @app.route('/gestionar_reportes/<int:co>', methods=['GET'])
 def gestionar_reportes(co):
@@ -886,8 +887,8 @@ def gestionar_reportes(co):
         flash('Estudiante no encontrado.')
         return redirect(url_for('dashboard'))
     reportes_subidos = ReporteMensual.query.filter_by(alumno_co=co).all()
-    meses_disponibles = obtener_meses_alumno(r)
-    return render_template('gestionar_reportes.html', alumno=r, reportes_subidos=reportes_subidos, meses_disponibles=meses_disponibles)
+    lista_meses = obtener_meses_alumno(r)
+    return render_template('gestionar_reportes.html', alumno=r, reportes_subidos=reportes_subidos, meses_disponibles=lista_meses, meses=lista_meses)
 
 
 @app.route('/subir_reporte_mes/<int:co>', methods=['POST'])
@@ -934,8 +935,8 @@ def gestionar_recibos_alumno(co):
         flash('Estudiante no encontrado.')
         return redirect(url_for('dashboard'))
     recibos_subidos = ReciboAlumnoMensual.query.filter_by(alumno_co=co).all()
-    meses_disponibles = obtener_meses_alumno(r)
-    return render_template('gestionar_recibos_alumno.html', alumno=r, recibos_subidos=recibos_subidos, meses_disponibles=meses_disponibles)
+    lista_meses = obtener_meses_alumno(r)
+    return render_template('gestionar_recibos_alumno.html', alumno=r, recibos_subidos=recibos_subidos, meses_disponibles=lista_meses, meses=lista_meses)
 
 
 @app.route('/subir_recibo_alumno_mes/<int:co>', methods=['POST'])
@@ -982,8 +983,8 @@ def gestionar_recibos_pago(co):
         flash('Estudiante no encontrado.')
         return redirect(url_for('dashboard'))
     recibos_subidos = ReciboPagoMensual.query.filter_by(alumno_co=co).all()
-    meses_disponibles = obtener_meses_alumno(r)
-    return render_template('gestionar_recibos_pago.html', alumno=r, recibos_subidos=recibos_subidos, meses_disponibles=meses_disponibles)
+    lista_meses = obtener_meses_alumno(r)
+    return render_template('gestionar_recibos_pago.html', alumno=r, recibos_subidos=recibos_subidos, meses_disponibles=lista_meses, meses=lista_meses)
 
 
 @app.route('/subir_recibo_pago_mes/<int:co>', methods=['POST'])
