@@ -41,7 +41,7 @@
                     <thead class="table-dark">
                         <tr>
                             <th>Mes / Año</th>
-                            <th>Nombre del Archivo</th>
+                            <th>Archivo en la Nube</th>
                             <th>Acciones</th>
                         </tr>
                     </thead>
@@ -49,14 +49,14 @@
                         {% if recibos_subidos %}
                             {% for rec in recibos_subidos %}
                                 <tr>
-                                    <td>{{ rec[1] }}</td>
+                                    <td>{{ rec.mes_anio }}</td>
                                     <td>
-                                        <a href="{{ url_for('static', filename='uploads_alumnos/' ~ rec[2]) }}" target="_blank">
-                                            {{ rec[2] }}
+                                        <a href="{{ rec.nombre_archivo }}" target="_blank">
+                                            Ver Archivo
                                         </a>
                                     </td>
                                     <td>
-                                        <a href="{{ url_for('eliminar_recibo_pago_mes', reporte_id=rec[0], co=alumno[0]) }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este recibo de pago?');">Eliminar</a>
+                                        <a href="{{ url_for('eliminar_recibo_pago_mes', reporte_id=rec.id, co=alumno[0]) }}" class="btn btn-danger btn-sm" onclick="return confirm('¿Estás seguro de eliminar este recibo de pago?');">Eliminar</a>
                                     </td>
                                 </tr>
                             {% endfor %}

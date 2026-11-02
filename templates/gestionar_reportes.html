@@ -62,18 +62,18 @@
                     <thead class="table-dark" style="background-color: #006633;">
                         <tr>
                             <th>Mes / Periodo</th>
-                            <th>Nombre del Archivo</th>
+                            <th>Archivo en la Nube</th>
                             <th class="text-end">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for rep in reportes_subidos %}
                         <tr>
-                            <td><strong>{{ rep[1] }}</strong></td>
-                            <td><i class="fas fa-file-pdf text-danger me-2"></i> {{ rep[2] }}</td>
+                            <td><strong>{{ rep.mes_anio }}</strong></td>
+                            <td><i class="fas fa-file-pdf text-danger me-2"></i> <a href="{{ rep.nombre_archivo }}" target="_blank">Ver enlace del archivo</a></td>
                             <td class="text-end">
-                                <a href="{{ url_for('static', filename='uploads_alumnos/' + rep[2]) }}" target="_blank" class="btn btn-sm btn-info text-dark me-1"><i class="fas fa-eye"></i> Ver</a>
-                                <a href="/eliminar_reporte_mes/{{ rep[0] }}/{{ alumno[0] }}" class="btn btn-sm btn-danger" onclick="return confirm('¿Estás seguro de eliminar este reporte?');"><i class="fas fa-trash-alt"></i> Eliminar</a>
+                                <a href="{{ rep.nombre_archivo }}" target="_blank" class="btn btn-sm btn-info text-dark me-1"><i class="fas fa-eye"></i> Ver</a>
+                                <a href="/eliminar_reporte_mes/{{ rep.id }}/{{ alumno[0] }}" class="btn btn-sm btn-danger" onclick="return confirm('¿Estás seguro de eliminar este reporte?');"><i class="fas fa-trash-alt"></i> Eliminar</a>
                             </td>
                         </tr>
                         {% else %}
